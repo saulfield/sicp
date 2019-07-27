@@ -1,5 +1,7 @@
 ;;; #lang racket
 
+;;; Utility
+
 (define (self-evaluating? expr)
   (cond ((number? expr) true)
         ((string? expr) true)
@@ -37,6 +39,8 @@
       (eval-expr (if-consequent exp) env)
       (eval-expr (if-alternative exp) env)))
 
+;;; Evaluator
+
 (define (eval-expr exp env)
   (cond ((self-evaluating? exp) exp)
         ;;; ((variable? exp) (lookup-variable-value exp env))
@@ -62,3 +66,20 @@
         (else
          (error "Unknown expression 
                  type: EVAL" exp))))
+
+;;; Tests
+
+(define (test exp expected)
+  (define result (eval-expr exp null))
+  (if (eq? result expected)
+      (displayln "Passed")
+      (begin 
+        (printf "Failed: ~s~n" exp)
+        (printf "  Expected: ~s~n" expected)
+        (printf "  Actual: ~s~n" result))))
+
+(test '1 1)
+(test '"abc" "abc")
+(test '(if #t "true" "false") "true")
+(test '(if #f "true" "false") "false")
+(test '(if 1 "true" "false") "true")
