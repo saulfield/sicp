@@ -168,6 +168,20 @@
       (eval-expr (if-consequent  exp) env)
       (eval-expr (if-alternative exp) env)))
 
+(define (begin? exp) (tagged-list? exp 'begin))
+(define (begin-actions exp) (cdr exp))
+(define (last-exp? seq) (null? (cdr seq)))
+(define (first-exp seq) (car seq))
+(define (rest-exps seq) (cdr seq))
+
+(define (eval-sequence exps env)
+  (cond ((last-exp? exps)
+         (eval-expr (first-exp exps) env))
+        (else
+         (eval-expr (first-exp exps) env)
+         (eval-sequence (rest-exps exps)
+                        env))))
+
 (define (application? exp) (pair? exp))
 (define (operator exp) (car exp))
 (define (operands exp) (cdr exp))
@@ -189,10 +203,10 @@
           (lambda-parameters exp)
           (lambda-body exp)
           env))
-        ;;; ((begin? exp)
-        ;;;  (eval-sequence 
-        ;;;   (begin-actions exp) 
-        ;;;   env))
+        ((begin? exp)
+         (eval-sequence 
+          (begin-actions exp) 
+          env))
         ;;; ((cond? exp) (eval-expr (cond->if exp) env))
         ((application? exp)
          (apply-proc (eval-expr (operator exp) env)
@@ -211,19 +225,19 @@
 (define (apply-proc procedure args)
   (cond ((primitive-procedure? procedure)
          (apply-primitive-procedure procedure args))
-        ;;; ((compound-procedure? procedure)
-        ;;;  (eval-sequence
-        ;;;    (procedure-body procedure)
-        ;;;    (extend-environment
-        ;;;      (procedure-parameters procedure)
-        ;;;      args
-        ;;;      (procedure-environment procedure))))
+        ((compound-procedure? procedure)
+         (eval-sequence
+           (procedure-body procedure)
+           (extend-environment
+             (procedure-params procedure)
+             args
+             (procedure-env procedure))))
         (else
          (error "Unknown procedure type: APPLY" procedure))))
 
 ;;; Tests ---------------------------------------------------
 
-(define (test-eval-env exp env expected)
+(define (test-eval-env env exp expected)
   (define result (eval-expr exp env))
   (if (equal? result expected)
       (printf "Passed: (eval-expr ~s)~n" exp)
@@ -233,7 +247,7 @@
         (printf "  Actual:   ~s~n" result))))
 
 (define (test-eval exp expected)
-  (test-eval-env exp (setup-environment) expected))
+  (test-eval-env (setup-environment) exp expected))
 
 (printf "Expression tests -----------------------------~n")
 (test-eval '1 1)
@@ -248,13 +262,19 @@
 (test-eval '(define x 1) 'ok)
 (test-eval '(define x (cons 1 2)) 'ok)
 (test-eval '(define f (lambda () 'result)) 'ok)
+(test-eval '(define f (lambda (x y) (cons x y))) 'ok)
 (test-eval '(define (f) 'result) 'ok)
+(test-eval '(define (f x y) (cons x y)) 'ok)
+(test-eval '(begin 'a 'b) 'b)
+(test-eval '(begin (define a 1) (define b 2)) 'ok)
 
 (printf "~nEnvironment tests ----------------------------~n")
 (define test-env (setup-environment))
-(test-eval-env '(define x 1) test-env 'ok)
-(test-eval-env '(define y 2) test-env 'ok)
-(test-eval-env '(define z (cons x y)) test-env 'ok)
-(test-eval-env 'x test-env 1)
-(test-eval-env 'y test-env 2)
-(test-eval-env 'z test-env (cons 1 2))
+(test-eval-env test-env '(define (f x y) (cons x y)) 'ok)
+(test-eval-env test-env '(f 3 4) (cons 3 4))
+(test-eval-env test-env '(define x 1) 'ok)
+(test-eval-env test-env '(define y 2) 'ok)
+(test-eval-env test-env '(define z (cons x y)) 'ok)
+(test-eval-env test-env 'x 1)
+(test-eval-env test-env 'y 2)
+(test-eval-env test-env 'z (cons 1 2))
