@@ -1,4 +1,4 @@
-;;; Utility -------------------------------------------------
+;; Utility -------------------------------------------------
 
 (define (true? x) (not (eq? x #f)))
 (define (false? x) (eq? x #f))
@@ -38,7 +38,7 @@
 (define (primitive-implementation proc)
   (cadr proc))
 
-;;; Environment ---------------------------------------------
+;; Environment ---------------------------------------------
 
 (define (enclosing-environment env) (cdr env))
 (define (first-frame env) (car env))
@@ -69,7 +69,7 @@
             (else (scan (cdr vars)
                         (cdr vals)))))
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
+        (error 'lookup "Unbound variable" var)
         (let ((frame (first-frame env)))
           (scan (frame-variables frame)
                 (frame-values frame)))))
@@ -115,7 +115,7 @@
 
 (define the-global-environment (setup-environment))
 
-;;; Eval ----------------------------------------------------
+;; Eval ----------------------------------------------------
 
 (define (self-evaluating? expr)
   (cond ((number? expr) #t)
@@ -188,8 +188,45 @@
 (define (list-of-values exps env)
   (if (null? exps)
       '()
-      (cons (eval-expr (car exps) env)
-            (list-of-values (cdr exps) env))))
+      (let ((left (eval-expr (car exps) env)))
+        (let ((rest (list-of-values (cdr exps) env)))
+          (cons left rest)))))
+
+(define (cond? exp) (tagged-list? exp 'cond))
+(define (cond-clauses exp) (cdr exp))
+(define (cond-else-clause? clause)
+  (eq? (cond-predicate clause) 'else))
+(define (cond-predicate clause) (car clause))
+(define (cond-actions clause) (cdr clause))
+(define (cond->if exp)
+  (expand-clauses (cond-clauses exp)))
+(define (sequence->exp seq)
+  (cond ((null? seq) seq)
+        ((last-exp? seq) (first-exp seq))
+        (else (make-begin seq))))
+(define (make-if predicate consequent alternative)
+  (list 'if predicate consequent alternative))
+(define (expand-clauses clauses)
+  (if (null? clauses)
+      'false     ; no else clause
+      (let ((first (car clauses))
+            (rest (cdr clauses)))
+        (if (cond-else-clause? first)
+            (if (null? rest)
+                (sequence->exp (cond-actions first))
+                (error "ELSE clause isn't last: COND->IF"
+                       clauses))
+            (make-if (cond-predicate first)
+                     (sequence->exp (cond-actions first))
+                     (expand-clauses rest))))))
+
+(define (let? exp) (tagged-list? exp 'let))
+(define (let->combination exp)
+  (define params (map car (cadr exp)))
+  (define args (map cadr (cadr exp)))
+  (define body (cddr exp))
+  (cons (make-lambda params body)
+        args))
 
 (define (eval-expr exp env)
   (cond ((self-evaluating? exp) exp)
@@ -198,6 +235,7 @@
         ((assignment? exp) (eval-assignment exp env))
         ((definition? exp) (eval-definition exp env))
         ((if? exp) (eval-if exp env))
+        ((let? exp) (eval-expr (let->combination exp) env))
         ((lambda? exp)
          (make-procedure
           (lambda-parameters exp)
@@ -207,14 +245,14 @@
          (eval-sequence 
           (begin-actions exp) 
           env))
-        ;;; ((cond? exp) (eval-expr (cond->if exp) env))
+        ((cond? exp) (eval-expr (cond->if exp) env))
         ((application? exp)
          (apply-proc (eval-expr (operator exp) env)
                      (list-of-values (operands exp) env)))
         (else
          (error "Unknown expression type: EVAL" exp))))
 
-;;; Apply ---------------------------------------------------
+;; Apply ---------------------------------------------------
 
 (define (primitive-procedure? proc)
   (tagged-list? proc 'primitive))
@@ -235,7 +273,7 @@
         (else
          (error "Unknown procedure type: APPLY" procedure))))
 
-;;; Tests ---------------------------------------------------
+;; Tests ---------------------------------------------------
 
 (define (test-eval-env env exp expected)
   (define result (eval-expr exp env))
@@ -258,6 +296,8 @@
 (test-eval '(if #f "true" "false") "false")
 (test-eval '(if true  "true" "false") "true")
 (test-eval '(if false "true" "false") "false")
+(test-eval '(cond (true  "true") (else "false")) "true")
+(test-eval '(cond (false "true") (else "false")) "false")
 (test-eval '(cons 1 2) (cons 1 2))
 (test-eval '(define x 1) 'ok)
 (test-eval '(define x (cons 1 2)) 'ok)
@@ -267,6 +307,7 @@
 (test-eval '(define (f x y) (cons x y)) 'ok)
 (test-eval '(begin 'a 'b) 'b)
 (test-eval '(begin (define a 1) (define b 2)) 'ok)
+(test-eval '(let ((a 1) (b 2)) (cons a b)) (cons 1 2))
 
 (printf "~nEnvironment tests ----------------------------~n")
 (define test-env (setup-environment))
@@ -278,3 +319,22 @@
 (test-eval-env test-env 'x 1)
 (test-eval-env test-env 'y 2)
 (test-eval-env test-env 'z (cons 1 2))
+
+;; Exercises -----------------------------------------------
+
+;; 4.1 
+(define (list-of-values exps env)
+  (if (null? exps)
+      '()
+      (let ((left (eval-expr (car exps) env)))
+        (let ((rest (list-of-values (cdr exps) env)))
+          (cons left rest)))))
+
+;; 4.6
+(define (let? exp) (tagged-list? exp 'let))
+(define (let->combination exp)
+  (define params (map car (cadr exp)))
+  (define args (map cadr (cadr exp)))
+  (define body (cddr exp))
+  (cons (make-lambda params body)
+        args))
