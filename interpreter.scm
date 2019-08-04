@@ -17,7 +17,7 @@
       'false))
 
 (define (make-procedure params body env)
-  (list 'procedure params body env))
+  (list 'procedure params (scan-out-defines body) env))
 (define (compound-procedure? p)
   (tagged-list? p 'procedure))
 (define (procedure-params p) (cadr   p))
@@ -65,7 +65,9 @@
       (cond ((null? vars)
              (env-loop (enclosing-environment env)))
             ((eq? var (car vars))
-             (car vals))
+             (if (eq? (car vals) '*unassigned*)
+                 (error 'lookup "Unassigned val" var)
+                 (car vals)))
             (else (scan (cdr vars)
                         (cdr vals)))))
     (if (eq? env the-empty-environment)
@@ -114,6 +116,7 @@
     initial-env))
 
 (define the-global-environment (setup-environment))
+(define global-env the-global-environment)
 
 ;; Eval ----------------------------------------------------
 
@@ -135,7 +138,7 @@
 (define (eval-assignment exp env)
   (set-variable-value! 
    (assignment-variable exp)
-   (eval (assignment-value exp) env)
+   (eval-expr (assignment-value exp) env)
    env)
   'ok)
 
@@ -188,9 +191,8 @@
 (define (list-of-values exps env)
   (if (null? exps)
       '()
-      (let ((left (eval-expr (car exps) env)))
-        (let ((rest (list-of-values (cdr exps) env)))
-          (cons left rest)))))
+      (cons (eval-expr (car exps) env)
+            (list-of-values (cdr exps) env))))
 
 (define (cond? exp) (tagged-list? exp 'cond))
 (define (cond-clauses exp) (cdr exp))
@@ -219,14 +221,6 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
-
-(define (let? exp) (tagged-list? exp 'let))
-(define (let->combination exp)
-  (define params (map car (cadr exp)))
-  (define args (map cadr (cadr exp)))
-  (define body (cddr exp))
-  (cons (make-lambda params body)
-        args))
 
 (define (eval-expr exp env)
   (cond ((self-evaluating? exp) exp)
@@ -273,53 +267,6 @@
         (else
          (error "Unknown procedure type: APPLY" procedure))))
 
-;; Tests ---------------------------------------------------
-
-(define (test-eval-env env exp expected)
-  (define result (eval-expr exp env))
-  (if (equal? result expected)
-      (printf "Passed: (eval-expr ~s)~n" exp)
-      (begin 
-        (printf "Failed: ~s~n" exp)
-        (printf "  Expected: ~s~n" expected)
-        (printf "  Actual:   ~s~n" result))))
-
-(define (test-eval exp expected)
-  (test-eval-env (setup-environment) exp expected))
-
-(printf "Expression tests -----------------------------~n")
-(test-eval '1 1)
-(test-eval '(quote a) 'a)
-(test-eval '"abc" "abc")
-(test-eval '(if 5  "true" "false") "true")
-(test-eval '(if #t "true" "false") "true")
-(test-eval '(if #f "true" "false") "false")
-(test-eval '(if true  "true" "false") "true")
-(test-eval '(if false "true" "false") "false")
-(test-eval '(cond (true  "true") (else "false")) "true")
-(test-eval '(cond (false "true") (else "false")) "false")
-(test-eval '(cons 1 2) (cons 1 2))
-(test-eval '(define x 1) 'ok)
-(test-eval '(define x (cons 1 2)) 'ok)
-(test-eval '(define f (lambda () 'result)) 'ok)
-(test-eval '(define f (lambda (x y) (cons x y))) 'ok)
-(test-eval '(define (f) 'result) 'ok)
-(test-eval '(define (f x y) (cons x y)) 'ok)
-(test-eval '(begin 'a 'b) 'b)
-(test-eval '(begin (define a 1) (define b 2)) 'ok)
-(test-eval '(let ((a 1) (b 2)) (cons a b)) (cons 1 2))
-
-(printf "~nEnvironment tests ----------------------------~n")
-(define test-env (setup-environment))
-(test-eval-env test-env '(define (f x y) (cons x y)) 'ok)
-(test-eval-env test-env '(f 3 4) (cons 3 4))
-(test-eval-env test-env '(define x 1) 'ok)
-(test-eval-env test-env '(define y 2) 'ok)
-(test-eval-env test-env '(define z (cons x y)) 'ok)
-(test-eval-env test-env 'x 1)
-(test-eval-env test-env 'y 2)
-(test-eval-env test-env 'z (cons 1 2))
-
 ;; Exercises -----------------------------------------------
 
 ;; 4.1 
@@ -338,3 +285,121 @@
   (define body (cddr exp))
   (cons (make-lambda params body)
         args))
+
+;; 4.16
+
+(define (make-let vars vals body)
+  (define (loop vars vals)
+    (if (null? vars)
+        '()
+        (cons (list (car vars)
+                    (car vals))
+              (loop (cdr vars)
+                    (cdr vals)))))
+  (cons 'let (cons (loop vars vals) body)))
+
+(define (make-new-body vars vals body)
+  (define (loop vars vals)
+    (if (null? vars)
+        '()
+        (cons (list 'set! (car vars) (car vals))
+              (loop (cdr vars) (cdr vals)))))
+  (append (loop vars vals) body))
+
+(define (scan-out-defines body)
+  (define vars (map cadr  (filter definition? body)))
+  (define vals (map caddr (filter definition? body)))
+  (define exps
+    (filter (lambda (x) (not (definition? x))) body))
+  (define new-body
+    (make-new-body vars vals exps))
+  (if (null? vars)
+      body
+      (list
+        (make-let vars
+                  (map (lambda (x) (quote '*unassigned*)) vals)
+                  new-body))))
+
+;; (define test-exp
+;;   '(lambda ()
+;;     (define u 1)
+;;     (define v 2)
+;;     (cons u v)))
+
+;; (define test-proc
+;;   (eval-expr test-exp global-env))
+;; (define proc-body (procedure-body test-proc))
+;; (define new-body (scan-out-defines proc-body))
+;; (printf "~s~n" test-proc)
+;; (printf "~s~n" (car proc-body))
+;; (printf "~s~n" (let->combination (car proc-body)))
+;; (printf "~s~n" (eval-expr (let->combination (car proc-body)) global-env))
+
+;; 4.18
+
+;; 4.20
+
+;; 4.21
+
+;; Tests ---------------------------------------------------
+
+(define (test-eval-env env exp expected)
+  (define result (eval-expr exp env))
+  (if (equal? result expected)
+      (printf "Passed: (eval-expr ~s)~n" exp)
+      (begin 
+        (printf "Failed: ~s~n" exp)
+        (printf "  Expected: ~s~n" expected)
+        (printf "  Actual:   ~s~n" result))))
+
+(define (test-eval exp expected)
+  (test-eval-env (setup-environment) exp expected))
+
+(define (run-tests)
+  (define test-env (setup-environment))
+  (define test-exp1
+    '((lambda ()
+        (define u 1)
+        (define v 2)
+        (cons u v))))
+  (define expanded
+    '(let ((u '*unassigned*) (v '*unassigned*))
+      (set! u 1)
+      (set! v 2)
+      (cons u v)))
+
+  (printf "Expression tests -----------------------------~n")
+  (test-eval '1 1)
+  (test-eval '(quote a) 'a)
+  (test-eval '"abc" "abc")
+  (test-eval '(if 5  "true" "false") "true")
+  (test-eval '(if #t "true" "false") "true")
+  (test-eval '(if #f "true" "false") "false")
+  (test-eval '(if true  "true" "false") "true")
+  (test-eval '(if false "true" "false") "false")
+  (test-eval '(cond (true  "true") (else "false")) "true")
+  (test-eval '(cond (false "true") (else "false")) "false")
+  (test-eval '(cons 1 2) (cons 1 2))
+  (test-eval '(define x 1) 'ok)
+  (test-eval '(define x (cons 1 2)) 'ok)
+  (test-eval '(define f (lambda () 'result)) 'ok)
+  (test-eval '(define f (lambda (x y) (cons x y))) 'ok)
+  (test-eval '(define (f) 'result) 'ok)
+  (test-eval '(define (f x y) (cons x y)) 'ok)
+  (test-eval '(begin 'a 'b) 'b)
+  (test-eval '(begin (define a 1) (define b 2)) 'ok)
+  (test-eval '(let ((a 1) (b 2)) (cons a b)) (cons 1 2))
+  (test-eval expanded (cons 1 2))
+  (test-eval test-exp1 (cons 1 2))
+
+  (printf "~nEnvironment tests ----------------------------~n")
+  (test-eval-env test-env '(define (f x y) (cons x y)) 'ok)
+  (test-eval-env test-env '(f 3 4) (cons 3 4))
+  (test-eval-env test-env '(define x 1) 'ok)
+  (test-eval-env test-env '(define y 2) 'ok)
+  (test-eval-env test-env '(define z (cons x y)) 'ok)
+  (test-eval-env test-env 'x 1)
+  (test-eval-env test-env 'y 2)
+  (test-eval-env test-env 'z (cons 1 2)))
+
+(run-tests)
