@@ -62,7 +62,9 @@
       (cons (make-frame vars vals) base-env)
       (if (< (length vars) (length vals))
           (error "Too many arguments supplied" vars vals)
-          (error "Too few arguments supplied"  vars vals))))
+          (error "Too few arguments supplied"
+                 vars
+                 vals))))
 
 (define (lookup-variable-value var env)
   (define (env-loop env)
@@ -123,6 +125,55 @@
 (define the-global-environment (setup-environment))
 (define global-env the-global-environment)
 
+;; Lazy ----------------------------------------------------
+
+(define (delay-it exp env)
+  (list 'thunk exp env))
+(define (thunk? obj) (tagged-list? obj 'thunk))
+(define (thunk-exp thunk) (cadr thunk))
+(define (thunk-env thunk) (caddr thunk))
+
+(define (evaluated-thunk? obj)
+  (tagged-list? obj 'evaluated-thunk))
+
+(define (thunk-value evaluated-thunk) 
+  (cadr evaluated-thunk))
+
+(define (force-it obj)
+  (cond ((thunk? obj)
+         (let ((result
+                (actual-value 
+                 (thunk-exp obj)
+                 (thunk-env obj))))
+           (set-car! obj 'evaluated-thunk)
+           ;; replace exp with its value:
+           (set-car! (cdr obj) result) 
+           ;; forget unneeded env:
+           (set-cdr! (cdr obj) '()) 
+           result))
+        ((evaluated-thunk? obj)
+         (thunk-value obj))
+        (else obj)))
+
+(define (actual-value exp env)
+  (force-it (eval-expr exp env)))
+
+(define (list-of-arg-values exps env)
+  (if (null? exps)
+      '()
+      (cons (actual-value (car exps) env)
+            (list-of-arg-values 
+             (cdr exps)
+             env))))
+
+(define (list-of-delayed-args exps env)
+  (if (null? exps)
+      '()
+      (cons (delay-it (car exps) env)
+            (list-of-delayed-args 
+             (cdr exps)
+             env))))
+
 ;; Eval ----------------------------------------------------
 
 (define (self-evaluating? expr)
@@ -171,9 +222,14 @@
     env)
   'ok)
 
+;; (define (eval-if exp env)
+;;   (if (true? (eval-expr (if-predicate exp) env))
+;;       (eval-expr (if-consequent  exp) env)
+;;       (eval-expr (if-alternative exp) env)))
+
 (define (eval-if exp env)
-  (if (true? (eval-expr (if-predicate exp) env))
-      (eval-expr (if-consequent  exp) env)
+  (if (true? (actual-value (if-predicate exp) env))
+      (eval-expr (if-consequent exp) env)
       (eval-expr (if-alternative exp) env)))
 
 (define (begin? exp) (tagged-list? exp 'begin))
@@ -246,9 +302,13 @@
         ((cond? exp) (eval-expr (cond->if exp) env))
         ((let? exp) (eval-expr (let->combination exp) env))
         ((letrec? exp) (eval-expr (letrec->let exp) env))
+        ;; ((application? exp)
+        ;;  (apply-proc (eval-expr (operator exp) env)
+        ;;              (list-of-values (operands exp) env)))
         ((application? exp)
-         (apply-proc (eval-expr (operator exp) env)
-                     (list-of-values (operands exp) env)))
+         (apply-proc (actual-value (operator exp) env)
+                     (operands exp)
+                     env))
         (else
          (error "Unknown expression type: EVAL" exp))))
 
@@ -260,18 +320,39 @@
 (define (apply-primitive-procedure proc args)
   (apply (primitive-implementation proc) args))
 
-(define (apply-proc procedure args)
+;; (define (apply-proc procedure args)
+;;   (cond ((primitive-procedure? procedure)
+;;          (apply-primitive-procedure procedure args))
+;;         ((compound-procedure? procedure)
+;;          (eval-sequence
+;;            (procedure-body procedure)
+;;            (extend-environment
+;;              (procedure-params procedure)
+;;              args
+;;              (procedure-env procedure))))
+;;         (else
+;;          (error "Unknown procedure type: APPLY"
+;;                 procedure))))
+
+(define (apply-proc procedure args env)
   (cond ((primitive-procedure? procedure)
-         (apply-primitive-procedure procedure args))
+         (apply-primitive-procedure
+          procedure
+          (list-of-arg-values
+           args
+           env)))  ; changed
         ((compound-procedure? procedure)
          (eval-sequence
-           (procedure-body procedure)
-           (extend-environment
-             (procedure-params procedure)
-             args
-             (procedure-env procedure))))
+          (procedure-body procedure)
+          (extend-environment
+           (procedure-params procedure)
+           (list-of-delayed-args
+            args
+            env)   ; changed
+           (procedure-env procedure))))
         (else
-         (error "Unknown procedure type: APPLY" procedure))))
+         (error "Unknown procedure type: APPLY"
+                procedure))))
 
 ;; Exercises -----------------------------------------------
 
@@ -323,23 +404,10 @@
       body
       (list
         (make-let vars
-                  (map (lambda (x) (quote '*unassigned*)) vals)
+                  (map (lambda (x) 
+                        (quote '*unassigned*))
+                       vals)
                   new-body))))
-
-;; (define test-exp
-;;   '(lambda ()
-;;     (define u 1)
-;;     (define v 2)
-;;     (cons u v)))
-
-;; (define test-proc
-;;   (eval-expr test-exp global-env))
-;; (define proc-body (procedure-body test-proc))
-;; (define new-body (scan-out-defines proc-body))
-;; (printf "~s~n" test-proc)
-;; (printf "~s~n" (car proc-body))
-;; (printf "~s~n" (let->combination (car proc-body)))
-;; (printf "~s~n" (eval-expr (let->combination (car proc-body)) global-env))
 
 ;; 4.18
 
@@ -366,6 +434,30 @@
             new-body))
 
 ;; 4.21
+
+(define Y
+  (lambda (F)
+    ((lambda (x)
+       (F (lambda (arg) ((x x) arg))))
+     (lambda (x)
+       (F (lambda (arg) ((x x) arg)))))))
+
+(define fact-gen
+  (lambda (f)
+    (lambda (n)
+      (if (= n 0)
+          1
+          (* n (f (- n 1)))))))
+(define fact (Y fact-gen))
+
+(define fib-gen
+  (lambda (f)
+    (lambda (n)
+      (if (< n 2)
+          n
+          (+ (f (- n 1))
+             (f (- n 2)))))))
+(define fib (Y fib-gen))
 
 ;; Tests ---------------------------------------------------
 
@@ -408,7 +500,7 @@
                   (even? (- n 1))))))
         (even? x))) 5))
 
-  (printf "Expression tests -----------------------------~n")
+  (printf "Expression tests ---------------------------~n")
   (test-eval '1 1)
   (test-eval '(quote a) 'a)
   (test-eval '"abc" "abc")
@@ -434,7 +526,7 @@
   (test-eval ex2 (cons 1 2))
   (test-eval ex3 #f)
 
-  (printf "~nEnvironment tests ----------------------------~n")
+  (printf "~nEnvironment tests --------------------------~n")
   (test-eval-env test-env '(define (f x y) (cons x y)) 'ok)
   (test-eval-env test-env '(f 3 4) (cons 3 4))
   (test-eval-env test-env '(define x 1) 'ok)
@@ -442,6 +534,10 @@
   (test-eval-env test-env '(define z (cons x y)) 'ok)
   (test-eval-env test-env 'x 1)
   (test-eval-env test-env 'y 2)
-  (test-eval-env test-env 'z (cons 1 2)))
+  (test-eval-env test-env 'z (cons 1 2))
+  (test-eval-env test-env '(define (try a b)
+                            (if (= a 0) 1 b))
+                          'ok)
+  (test-eval-env test-env '(try 0 (/ 1 0)) 1))
 
-(run-tests)
+;; (run-tests)
