@@ -24,10 +24,14 @@
 (define (procedure-body   p) (caddr  p))
 (define (procedure-env    p) (cadddr p))
 
+(define lazy-car (lambda (pair) (pair (lambda (x y) x))))
+(define lazy-cdr (lambda (pair) (pair (lambda (x y) y))))
+(define lazy-cons (lambda (x y) (lambda (m) (m x y))))
+
 (define primitive-procedures
-  (list (list 'car   car)
-        (list 'cdr   cdr)
-        (list 'cons  cons)
+  (list (list 'car   lazy-car)
+        (list 'cdr   lazy-cdr)
+        (list 'cons  lazy-cons)
         (list 'null? null?)
         (list '+ +)
         (list '- -)
@@ -125,57 +129,6 @@
 (define the-global-environment (setup-environment))
 (define global-env the-global-environment)
 
-;; Lazy ----------------------------------------------------
-
-(define (delay-it exp env)
-  (list 'thunk exp env))
-(define (thunk? obj) (tagged-list? obj 'thunk))
-(define (thunk-exp thunk) (cadr thunk))
-(define (thunk-env thunk) (caddr thunk))
-
-(define (evaluated-thunk? obj)
-  (tagged-list? obj 'evaluated-thunk))
-
-(define (thunk-value evaluated-thunk) 
-  (cadr evaluated-thunk))
-
-(define (force-it obj)
-  (cond ((thunk? obj)
-         (let ((result
-                (actual-value 
-                 (thunk-exp obj)
-                 (thunk-env obj))))
-           (set-car! obj 'evaluated-thunk)
-           ;; replace exp with its value:
-           (set-car! (cdr obj) result) 
-           ;; forget unneeded env:
-           (set-cdr! (cdr obj) '()) 
-           result))
-        ((evaluated-thunk? obj)
-         (thunk-value obj))
-        (else obj)))
-
-(define (actual-value exp env)
-  (force-it (eval-expr exp env)))
-
-(define (list-of-arg-values exps env)
-  (if (null? exps)
-      '()
-      (cons (actual-value (car exps) env)
-            (list-of-arg-values 
-             (cdr exps)
-             env))))
-
-(define (list-of-delayed-args exps env)
-  (if (null? exps)
-      '()
-      (cons (delay-it (car exps) env)
-            (list-of-delayed-args 
-             (cdr exps)
-             env))))
-
-;; Eval ----------------------------------------------------
-
 (define (self-evaluating? expr)
   (cond ((number? expr) #t)
         ((string? expr) #t)
@@ -183,8 +136,17 @@
         ((eq? expr #f)  #t)
         (else #f)))
 
+(define (create-stream x)
+  (if (null? x)
+      '()
+      (lazy-cons (car x)
+                 (create-stream (cdr x)))))
 (define (quoted? exp) (tagged-list? exp 'quote))
-(define (text-of-quotation exp) (cadr exp))
+(define (eval-quote exp)
+  (define rest (cadr exp))
+  (if (list? rest)
+      (create-stream rest)
+      (cadr exp)))
 
 (define (variable? exp) (symbol? exp))
 
@@ -249,11 +211,6 @@
 (define (application? exp) (pair? exp))
 (define (operator exp) (car exp))
 (define (operands exp) (cdr exp))
-(define (list-of-values exps env)
-  (if (null? exps)
-      '()
-      (cons (eval-expr (car exps) env)
-            (list-of-values (cdr exps) env))))
 
 (define (cond? exp) (tagged-list? exp 'cond))
 (define (cond-clauses exp) (cdr exp))
@@ -283,10 +240,129 @@
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
 
+(define (list-of-values exps env)
+  (if (null? exps)
+      '()
+      (let ((left (eval-expr (car exps) env)))
+        (let ((rest (list-of-values (cdr exps) env)))
+          (cons left rest)))))
+
+(define (let? exp) (tagged-list? exp 'let))
+(define (let->combination exp)
+  (define params (map car (cadr exp)))
+  (define args (map cadr (cadr exp)))
+  (define body (cddr exp))
+  (cons (make-lambda params body)
+        args))
+
+(define (make-let vars vals body)
+  (define (loop vars vals)
+    (if (null? vars)
+        '()
+        (cons (list (car vars)
+                    (car vals))
+              (loop (cdr vars)
+                    (cdr vals)))))
+  (cons 'let (cons (loop vars vals) body)))
+
+(define (make-new-body vars vals body)
+  (define (loop vars vals)
+    (if (null? vars)
+        '()
+        (cons (list 'set! (car vars) (car vals))
+              (loop (cdr vars) (cdr vals)))))
+  (append (loop vars vals) body))
+
+(define (scan-out-defines body)
+  (define vars (map cadr  (filter definition? body)))
+  (define vals (map caddr (filter definition? body)))
+  (define exps
+    (filter (lambda (x) (not (definition? x))) body))
+  (define new-body
+    (make-new-body vars vals exps))
+  (if (null? vars)
+      body
+      (list
+        (make-let vars
+                  (map (lambda (x) 
+                        (quote '*unassigned*))
+                       vals)
+                  new-body))))
+
+(define (letrec? exp) (tagged-list? exp 'letrec))
+(define (letrec-vars exp) (map car  (cadr exp)))
+(define (letrec-vals exp) (map cadr (cadr exp)))
+(define (letrec-body exp) (cddr exp))
+(define (letrec->let exp)
+  (define vars (letrec-vars exp))
+  (define vals (letrec-vals exp))
+  (define body (letrec-body exp))
+  (define new-body (make-new-body vars vals body))
+  (make-let vars
+            (map (lambda (x) (quote '*unassigned*)) vals)
+            new-body))
+
+;; Lazy ----------------------------------------------------
+
+(define (delay-it exp env)
+  (list 'thunk exp env))
+(define (thunk? obj) (tagged-list? obj 'thunk))
+(define (thunk-exp thunk) (cadr thunk))
+(define (thunk-env thunk) (caddr thunk))
+
+(define (evaluated-thunk? obj)
+  (tagged-list? obj 'evaluated-thunk))
+
+(define (thunk-value evaluated-thunk) 
+  (cadr evaluated-thunk))
+
+;; (define (force-it obj)
+;;   (if (thunk? obj)
+;;       (actual-value (thunk-exp obj)
+;;                     (thunk-env obj))
+;;       obj))
+
+(define (force-it obj)
+  (cond ((thunk? obj)
+         (let ((result
+                (actual-value 
+                 (thunk-exp obj)
+                 (thunk-env obj))))
+           (set-car! obj 'evaluated-thunk)
+           ;; replace exp with its value:
+           (set-car! (cdr obj) result) 
+           ;; forget unneeded env:
+           (set-cdr! (cdr obj) '())
+           result))
+        ((evaluated-thunk? obj)
+         (thunk-value obj))
+        (else obj)))
+
+(define (actual-value exp env)
+  (force-it (eval-expr exp env)))
+
+(define (list-of-arg-values exps env)
+  (if (null? exps)
+      '()
+      (cons (actual-value (car exps) env)
+            (list-of-arg-values 
+             (cdr exps)
+             env))))
+
+(define (list-of-delayed-args exps env)
+  (if (null? exps)
+      '()
+      (cons (delay-it (car exps) env)
+            (list-of-delayed-args 
+             (cdr exps)
+             env))))
+
+;; Eval ----------------------------------------------------
+
 (define (eval-expr exp env)
   (cond ((self-evaluating? exp) exp)
         ((variable?   exp) (lookup-variable-value exp env))
-        ((quoted?     exp) (text-of-quotation exp))
+        ((quoted?     exp) (eval-quote exp))
         ((assignment? exp) (eval-assignment exp env))
         ((definition? exp) (eval-definition exp env))
         ((if? exp) (eval-if exp env))
@@ -311,6 +387,8 @@
                      env))
         (else
          (error "Unknown expression type: EVAL" exp))))
+
+(define (evalg exp) (eval-expr exp global-env))
 
 ;; Apply ---------------------------------------------------
 
@@ -356,188 +434,55 @@
 
 ;; Exercises -----------------------------------------------
 
-;; 4.1 
-(define (list-of-values exps env)
-  (if (null? exps)
-      '()
-      (let ((left (eval-expr (car exps) env)))
-        (let ((rest (list-of-values (cdr exps) env)))
-          (cons left rest)))))
+;; 4.25
 
-;; 4.6
-(define (let? exp) (tagged-list? exp 'let))
-(define (let->combination exp)
-  (define params (map car (cadr exp)))
-  (define args (map cadr (cadr exp)))
-  (define body (cddr exp))
-  (cons (make-lambda params body)
-        args))
+;; In an applicative-order evaluator, this will produce
+;; an infinite loop because all arguments to the unless
+;; function will be evaluated. So (factorial 1) will call 
+;; (factorial 0) and the base case will be missed.
 
-;; 4.16
+;; 4.28
 
-(define (make-let vars vals body)
-  (define (loop vars vals)
-    (if (null? vars)
-        '()
-        (cons (list (car vars)
-                    (car vals))
-              (loop (cdr vars)
-                    (cdr vals)))))
-  (cons 'let (cons (loop vars vals) body)))
+;; This is necessary for expressions that pass functions as
+;; arguments which are then called. Since it will be delayed,
+;; the function will be a thunk, so when it is evaluated,
+;; the actual value must be forced so it can be passed to
+;; apply. This is because apply does not handle thunks.
 
-(define (make-new-body vars vals body)
-  (define (loop vars vals)
-    (if (null? vars)
-        '()
-        (cons (list 'set! (car vars) (car vals))
-              (loop (cdr vars) (cdr vals)))))
-  (append (loop vars vals) body))
+;; 4.29
 
-(define (scan-out-defines body)
-  (define vars (map cadr  (filter definition? body)))
-  (define vals (map caddr (filter definition? body)))
-  (define exps
-    (filter (lambda (x) (not (definition? x))) body))
-  (define new-body
-    (make-new-body vars vals exps))
-  (if (null? vars)
-      body
-      (list
-        (make-let vars
-                  (map (lambda (x) 
-                        (quote '*unassigned*))
-                       vals)
-                  new-body))))
+;; (define count 0)
+;; (define (id x) (set! count (+ count 1)) x)
+;; (define (square x) (* x x))
 
-;; 4.18
+;; Without memoization:
+;; > (square (id 10))
+;; 100
+;; > count
+;; 2
 
-;; The method shown in the exercise will not work because
-;; both a and b will be evaluated in an environment where
-;; y and dy are bound to '*unassigned*
+;; With memoization:
+;; > (square (id 10))
+;; 100
+;; > count
+;; 1
 
-;; The method from the text will work, because dy will be set
-;; after y has been set to its initial value
+;; 4.33
 
-;; 4.20
+;; (define lazy-car (lambda (pair) (pair (lambda (x y) x))))
+;; (define lazy-cdr (lambda (pair) (pair (lambda (x y) y))))
+;; (define lazy-cons (lambda (x y) (lambda (m) (m x y))))
 
-(define (letrec? exp) (tagged-list? exp 'letrec))
-(define (letrec-vars exp) (map car  (cadr exp)))
-(define (letrec-vals exp) (map cadr (cadr exp)))
-(define (letrec-body exp) (cddr exp))
-(define (letrec->let exp)
-  (define vars (letrec-vars exp))
-  (define vals (letrec-vals exp))
-  (define body (letrec-body exp))
-  (define new-body (make-new-body vars vals body))
-  (make-let vars
-            (map (lambda (x) (quote '*unassigned*)) vals)
-            new-body))
+;; (define (quoted? exp) (tagged-list? exp 'quote))
 
-;; 4.21
+;; (define (create-stream x)
+;;   (if (null? x)
+;;       '()
+;;       (lazy-cons (car x)
+;;                  (create-stream (cdr x)))))
 
-(define Y
-  (lambda (F)
-    ((lambda (x)
-       (F (lambda (arg) ((x x) arg))))
-     (lambda (x)
-       (F (lambda (arg) ((x x) arg)))))))
-
-(define fact-gen
-  (lambda (f)
-    (lambda (n)
-      (if (= n 0)
-          1
-          (* n (f (- n 1)))))))
-(define fact (Y fact-gen))
-
-(define fib-gen
-  (lambda (f)
-    (lambda (n)
-      (if (< n 2)
-          n
-          (+ (f (- n 1))
-             (f (- n 2)))))))
-(define fib (Y fib-gen))
-
-;; Tests ---------------------------------------------------
-
-(define (test-eval-env env exp expected)
-  (define result (eval-expr exp env))
-  (if (equal? result expected)
-      (printf "Passed: (eval-expr ~s)~n" exp)
-      (begin 
-        (printf "Failed: ~s~n" exp)
-        (printf "  Expected: ~s~n" expected)
-        (printf "  Actual:   ~s~n" result))))
-
-(define (test-eval exp expected)
-  (test-eval-env (setup-environment) exp expected))
-
-(define (run-tests)
-  (define test-env (setup-environment))
-  (define ex1
-    '((lambda ()
-        (define u 1)
-        (define v 2)
-        (cons u v))))
-  (define ex2
-    '(let ((u '*unassigned*) (v '*unassigned*))
-      (set! u 1)
-      (set! v 2)
-      (cons u v)))
-  (define ex3
-    '((lambda (x)
-        (letrec
-          ((even?
-            (lambda (n)
-              (if (= n 0)
-                  true
-                  (odd? (- n 1)))))
-          (odd?
-            (lambda (n)
-              (if (= n 0)
-                  false
-                  (even? (- n 1))))))
-        (even? x))) 5))
-
-  (printf "Expression tests ---------------------------~n")
-  (test-eval '1 1)
-  (test-eval '(quote a) 'a)
-  (test-eval '"abc" "abc")
-  (test-eval '(* 2 3) (* 2 3))
-  (test-eval '(if 5  "true" "false") "true")
-  (test-eval '(if #t "true" "false") "true")
-  (test-eval '(if #f "true" "false") "false")
-  (test-eval '(if true  "true" "false") "true")
-  (test-eval '(if false "true" "false") "false")
-  (test-eval '(cond (true  "true") (else "false")) "true")
-  (test-eval '(cond (false "true") (else "false")) "false")
-  (test-eval '(cons 1 2) (cons 1 2))
-  (test-eval '(define x 1) 'ok)
-  (test-eval '(define x (cons 1 2)) 'ok)
-  (test-eval '(define f (lambda () 'result)) 'ok)
-  (test-eval '(define f (lambda (x y) (cons x y))) 'ok)
-  (test-eval '(define (f) 'result) 'ok)
-  (test-eval '(define (f x y) (cons x y)) 'ok)
-  (test-eval '(begin 'a 'b) 'b)
-  (test-eval '(begin (define a 1) (define b 2)) 'ok)
-  (test-eval '(let ((a 1) (b 2)) (cons a b)) (cons 1 2))
-  (test-eval ex1 (cons 1 2))
-  (test-eval ex2 (cons 1 2))
-  (test-eval ex3 #f)
-
-  (printf "~nEnvironment tests --------------------------~n")
-  (test-eval-env test-env '(define (f x y) (cons x y)) 'ok)
-  (test-eval-env test-env '(f 3 4) (cons 3 4))
-  (test-eval-env test-env '(define x 1) 'ok)
-  (test-eval-env test-env '(define y 2) 'ok)
-  (test-eval-env test-env '(define z (cons x y)) 'ok)
-  (test-eval-env test-env 'x 1)
-  (test-eval-env test-env 'y 2)
-  (test-eval-env test-env 'z (cons 1 2))
-  (test-eval-env test-env '(define (try a b)
-                            (if (= a 0) 1 b))
-                          'ok)
-  (test-eval-env test-env '(try 0 (/ 1 0)) 1))
-
-;; (run-tests)
+;; (define (eval-quote exp)
+;;   (define rest (cadr exp))
+;;   (if (list? rest)
+;;       (create-stream rest)
+;;       (cadr exp)))
