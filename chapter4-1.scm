@@ -125,52 +125,11 @@
 (define the-global-environment (setup-environment))
 (define global-env the-global-environment)
 
-;; Lazy ----------------------------------------------------
-
-(define (delay-it exp env)
-  (list 'thunk exp env))
-(define (thunk? obj) (tagged-list? obj 'thunk))
-(define (thunk-exp thunk) (cadr thunk))
-(define (thunk-env thunk) (caddr thunk))
-
-(define (evaluated-thunk? obj)
-  (tagged-list? obj 'evaluated-thunk))
-
-(define (thunk-value evaluated-thunk) 
-  (cadr evaluated-thunk))
-
-(define (force-it obj)
-  (cond ((thunk? obj)
-         (let ((result
-                (actual-value 
-                 (thunk-exp obj)
-                 (thunk-env obj))))
-           (set-car! obj 'evaluated-thunk)
-           ;; replace exp with its value:
-           (set-car! (cdr obj) result) 
-           ;; forget unneeded env:
-           (set-cdr! (cdr obj) '()) 
-           result))
-        ((evaluated-thunk? obj)
-         (thunk-value obj))
-        (else obj)))
-
-(define (actual-value exp env)
-  (force-it (eval-expr exp env)))
-
 (define (list-of-arg-values exps env)
   (if (null? exps)
       '()
       (cons (actual-value (car exps) env)
             (list-of-arg-values 
-             (cdr exps)
-             env))))
-
-(define (list-of-delayed-args exps env)
-  (if (null? exps)
-      '()
-      (cons (delay-it (car exps) env)
-            (list-of-delayed-args 
              (cdr exps)
              env))))
 
@@ -222,14 +181,9 @@
     env)
   'ok)
 
-;; (define (eval-if exp env)
-;;   (if (true? (eval-expr (if-predicate exp) env))
-;;       (eval-expr (if-consequent  exp) env)
-;;       (eval-expr (if-alternative exp) env)))
-
 (define (eval-if exp env)
-  (if (true? (actual-value (if-predicate exp) env))
-      (eval-expr (if-consequent exp) env)
+  (if (true? (eval-expr (if-predicate exp) env))
+      (eval-expr (if-consequent  exp) env)
       (eval-expr (if-alternative exp) env)))
 
 (define (begin? exp) (tagged-list? exp 'begin))
@@ -302,13 +256,9 @@
         ((cond? exp) (eval-expr (cond->if exp) env))
         ((let? exp) (eval-expr (let->combination exp) env))
         ((letrec? exp) (eval-expr (letrec->let exp) env))
-        ;; ((application? exp)
-        ;;  (apply-proc (eval-expr (operator exp) env)
-        ;;              (list-of-values (operands exp) env)))
         ((application? exp)
-         (apply-proc (actual-value (operator exp) env)
-                     (operands exp)
-                     env))
+         (apply-proc (eval-expr (operator exp) env)
+                     (list-of-values (operands exp) env)))
         (else
          (error "Unknown expression type: EVAL" exp))))
 
@@ -320,36 +270,16 @@
 (define (apply-primitive-procedure proc args)
   (apply (primitive-implementation proc) args))
 
-;; (define (apply-proc procedure args)
-;;   (cond ((primitive-procedure? procedure)
-;;          (apply-primitive-procedure procedure args))
-;;         ((compound-procedure? procedure)
-;;          (eval-sequence
-;;            (procedure-body procedure)
-;;            (extend-environment
-;;              (procedure-params procedure)
-;;              args
-;;              (procedure-env procedure))))
-;;         (else
-;;          (error "Unknown procedure type: APPLY"
-;;                 procedure))))
-
-(define (apply-proc procedure args env)
+(define (apply-proc procedure args)
   (cond ((primitive-procedure? procedure)
-         (apply-primitive-procedure
-          procedure
-          (list-of-arg-values
-           args
-           env)))  ; changed
+         (apply-primitive-procedure procedure args))
         ((compound-procedure? procedure)
          (eval-sequence
-          (procedure-body procedure)
-          (extend-environment
-           (procedure-params procedure)
-           (list-of-delayed-args
-            args
-            env)   ; changed
-           (procedure-env procedure))))
+           (procedure-body procedure)
+           (extend-environment
+             (procedure-params procedure)
+             args
+             (procedure-env procedure))))
         (else
          (error "Unknown procedure type: APPLY"
                 procedure))))
@@ -534,10 +464,6 @@
   (test-eval-env test-env '(define z (cons x y)) 'ok)
   (test-eval-env test-env 'x 1)
   (test-eval-env test-env 'y 2)
-  (test-eval-env test-env 'z (cons 1 2))
-  (test-eval-env test-env '(define (try a b)
-                            (if (= a 0) 1 b))
-                          'ok)
-  (test-eval-env test-env '(try 0 (/ 1 0)) 1))
+  (test-eval-env test-env 'z (cons 1 2)))
 
-;; (run-tests)
+(run-tests)
