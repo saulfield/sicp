@@ -38,6 +38,7 @@
         (list '* *)
         (list '/ /)
         (list '= =)))
+        
 (define (primitive-procedure-names)
   (map car primitive-procedures))
 (define (primitive-procedure-objects)
@@ -378,9 +379,6 @@
         ((cond? exp) (eval-expr (cond->if exp) env))
         ((let? exp) (eval-expr (let->combination exp) env))
         ((letrec? exp) (eval-expr (letrec->let exp) env))
-        ;; ((application? exp)
-        ;;  (apply-proc (eval-expr (operator exp) env)
-        ;;              (list-of-values (operands exp) env)))
         ((application? exp)
          (apply-proc (actual-value (operator exp) env)
                      (operands exp)
@@ -469,20 +467,20 @@
 
 ;; 4.33
 
-;; (define lazy-car (lambda (pair) (pair (lambda (x y) x))))
-;; (define lazy-cdr (lambda (pair) (pair (lambda (x y) y))))
-;; (define lazy-cons (lambda (x y) (lambda (m) (m x y))))
+(define lazy-car (lambda (pair) (pair (lambda (x y) x))))
+(define lazy-cdr (lambda (pair) (pair (lambda (x y) y))))
+(define lazy-cons (lambda (x y) (lambda (m) (m x y))))
 
-;; (define (quoted? exp) (tagged-list? exp 'quote))
+(define (quoted? exp) (tagged-list? exp 'quote))
 
-;; (define (create-stream x)
-;;   (if (null? x)
-;;       '()
-;;       (lazy-cons (car x)
-;;                  (create-stream (cdr x)))))
+(define (create-stream x)
+  (if (null? x)
+      '()
+      (lazy-cons (car x)
+                 (create-stream (cdr x)))))
 
-;; (define (eval-quote exp)
-;;   (define rest (cadr exp))
-;;   (if (list? rest)
-;;       (create-stream rest)
-;;       (cadr exp)))
+(define (eval-quote exp)
+  (define rest (cadr exp))
+  (if (list? rest)
+      (create-stream rest)
+      (cadr exp)))
