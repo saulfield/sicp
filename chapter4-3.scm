@@ -1,12 +1,11 @@
 (define true #t)
 (define false #f)
 
-(define (eval-expr exp env)
+(define (eval exp env)
   ((analyze exp) env))
 
 (define (analyze exp)
-  (cond ((self-evaluating? exp)
-         (analyze-self-evaluating exp))
+  (cond ((self-evaluating? exp) (analyze-self-evaluating exp))
         ((quoted? exp) (analyze-quoted exp))
         ((variable? exp) (analyze-variable exp))
         ((assignment? exp) (analyze-assignment exp))
@@ -311,18 +310,15 @@
   (map (lambda (proc) (list 'primitive (cadr proc)))
        primitive-procedures))
 
-(define apply-in-underlying-scheme apply)
-
 (define (apply-primitive-procedure proc args)
-  (apply-in-underlying-scheme
-   (primitive-implementation proc) args))
+  (apply (primitive-implementation proc) args))
 
 ;; Tests ---------------------------------------------------
 
 (define (test-eval-env env exp expected)
-  (define result (eval-expr exp env))
+  (define result (eval exp env))
   (if (equal? result expected)
-      (printf "Passed: (eval-expr ~s)~n" exp)
+      (printf "Passed: (eval ~s)~n" exp)
       (begin 
         (printf "Failed: ~s~n" exp)
         (printf "  Expected: ~s~n" expected)
