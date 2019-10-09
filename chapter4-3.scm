@@ -3,9 +3,6 @@
 
 ;; amb
 
-;; (define (eval exp env)
-;;   ((analyze exp) env))
-
 (define (amb? exp) (tagged-list? exp 'amb))
 (define (amb-choices exp) (cdr exp))
 
