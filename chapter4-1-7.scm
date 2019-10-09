@@ -14,6 +14,7 @@
         ((lambda? exp) (analyze-lambda exp))
         ((begin? exp) (analyze-sequence (begin-actions exp)))
         ((cond? exp) (analyze (cond->if exp)))
+        ((let? exp) (anaylze (let->combination exp)))
         ((application? exp) (analyze-application exp))
         (else
          (error 'analyze "Unknown expression type -- ANALYZE" exp))))
@@ -186,6 +187,13 @@
             (make-if (cond-predicate first)
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
+
+(define (let? exp) (tagged-list? exp 'let))
+(define (let->combination exp)
+  (define params (map car (cadr exp)))
+  (define args (map cadr (cadr exp)))
+  (define body (cddr exp))
+  (cons (make-lambda params body) args))
 
 ;; * testing of predicates
 

@@ -16,6 +16,7 @@
 
 (define (analyze exp)
   (cond ((self-evaluating? exp) (analyze-self-evaluating exp))
+        ((list-exp? exp) (analyze-list exp))
         ((quoted? exp) (analyze-quoted exp))
         ((variable? exp) (analyze-variable exp))
         ((assignment? exp) (analyze-assignment exp))
@@ -24,6 +25,7 @@
         ((lambda? exp) (analyze-lambda exp))
         ((begin? exp) (analyze-sequence (begin-actions exp)))
         ((cond? exp) (analyze (cond->if exp)))
+        ((let? exp) (analyze (let->combination exp)))
         ((amb? exp) (analyze-amb exp))
         ((application? exp) (analyze-application exp))
         (else
@@ -34,6 +36,15 @@
 (define (analyze-self-evaluating exp)
   (lambda (env succeed fail)
     (succeed exp fail)))
+
+(define (list-exp? exp) (tagged-list? exp 'list))
+(define (analyze-list exp)
+  (let ((elems (map analyze (cdr exp))))
+    (lambda (env succeed fail)
+      (define (resolve elem)
+        (elem env (lambda (val fail2) val) fail))
+      (define vals (map resolve elems))
+      (succeed vals fail))))
 
 (define (analyze-quoted exp)
   (let ((qval (text-of-quotation exp)))
@@ -264,6 +275,13 @@
                      (sequence->exp (cond-actions first))
                      (expand-clauses rest))))))
 
+(define (let? exp) (tagged-list? exp 'let))
+(define (let->combination exp)
+  (define params (map car (cadr exp)))
+  (define args (map cadr (cadr exp)))
+  (define body (cddr exp))
+  (cons (make-lambda params body) args))
+
 ;; * testing of predicates
 
 (define (true? x)
@@ -321,7 +339,7 @@
              (car vals))
             (else (scan (cdr vars) (cdr vals)))))
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
+        (error 'lookup "Unbound variable" var)
         (let ((frame (first-frame env)))
           (scan (frame-variables frame)
                 (frame-values frame)))))
@@ -369,11 +387,19 @@
 
 (define (primitive-implementation proc) (cadr proc))
 
+(define (prime? n)
+  (let loop ((d 2))
+    (cond ((< n (* d d)) #t)
+          ((zero? (modulo n d)) #f)
+          (else (loop (+ d 1))))))
+
 (define primitive-procedures
   (list (list 'car   car)
         (list 'cdr   cdr)
         (list 'cons  cons)
         (list 'null? null?)
+        (list 'prime? prime?)
+        (list 'not   not)
         (list '+     +)
         (list '-     -)
         (list '*     *)
@@ -391,7 +417,6 @@
   (apply (primitive-implementation proc) args))
 
 (define global-env (setup-environment))
-
 
 ;; driver loop
 
@@ -429,60 +454,51 @@
                         ";;; There are no more values of")
                        (user-print input)
                        (driver-loop)))))))
-  (internal-loop 
+  (internal-loop
     (lambda ()
       (newline)
       (display ";;; There is no current problem")
       (driver-loop))))
 
-;; Tests ---------------------------------------------------
+(define definitions
+  (list '(define (require p)
+           (if (not p) (amb)))
+        '(define (an-element-of items)
+           (require (not (null? items)))
+           (amb (car items)
+                (an-element-of (cdr items))))
+        '(define (prime-sum-pair list1 list2)
+           (let ((a (an-element-of list1))
+                 (b (an-element-of list2)))
+             (require (prime? (+ a b)))
+             (list a b)))
+        '(define (an-integer-between low high)
+           (define (loop n)
+             (require (not (= n high)))
+             (amb n (loop (+ n 1))))
+           (loop low))))
 
-(define (test-eval-env env exp expected)
-  (define result (eval exp env))
-  (if (equal? result expected)
-      (printf "Passed: (eval ~s)~n" exp)
-      (begin 
-        (printf "Failed: ~s~n" exp)
-        (printf "  Expected: ~s~n" expected)
-        (printf "  Actual:   ~s~n" result))))
+(define (load-definitions defs)
+  (if (null? defs)
+      'loaded
+      (begin
+        (ambeval (car defs)
+                 global-env
+                 (lambda (val fail) 'ok)
+                 (lambda () 'failed))
+        (load-definitions (cdr defs)))))
 
-(define (test-eval exp expected)
-  (test-eval-env (setup-environment) exp expected))
+(load-definitions definitions)
+(driver-loop)
 
-(define (run-tests)
-  (define test-env (setup-environment))
-  (printf "Expression tests ---------------------------~n")
-  (test-eval '1 1)
-  (test-eval '(quote a) 'a)
-  (test-eval '"abc" "abc")
-  (test-eval '(* 2 3) (* 2 3))
-  (test-eval '(if 5  "true" "false") "true")
-  (test-eval '(if #t "true" "false") "true")
-  (test-eval '(if #f "true" "false") "false")
-  (test-eval '(if true  "true" "false") "true")
-  (test-eval '(if false "true" "false") "false")
-  (test-eval '(cond (true  "true") (else "false")) "true")
-  (test-eval '(cond (false "true") (else "false")) "false")
-  (test-eval '(cons 1 2) (cons 1 2))
-  (test-eval '(define x 1) 'ok)
-  (test-eval '(define x (cons 1 2)) 'ok)
-  (test-eval '(define f (lambda () 'result)) 'ok)
-  (test-eval '(define f (lambda (x y) (cons x y))) 'ok)
-  (test-eval '(define (f) 'result) 'ok)
-  (test-eval '(define (f x y) (cons x y)) 'ok)
-  (test-eval '(begin 'a 'b) 'b)
-  (test-eval '(begin (define a 1) (define b 2)) 'ok)
-  ;; (test-eval '(let ((a 1) (b 2)) (cons a b)) (cons 1 2))
+;; exercises
 
-  (printf "~nEnvironment tests --------------------------~n")
-  (test-eval-env test-env '(define (f x y) (cons x y)) 'ok)
-  (test-eval-env test-env '(f 3 4) (cons 3 4))
-  (test-eval-env test-env '(define x 1) 'ok)
-  (test-eval-env test-env '(define y 2) 'ok)
-  (test-eval-env test-env '(define z (cons x y)) 'ok)
-  (test-eval-env test-env 'x 1)
-  (test-eval-env test-env 'y 2)
-  (test-eval-env test-env 'z (cons 1 2)))
+;; (prime-sum-pair '(19 27 30) '(11 36 58))
 
-;; (run-tests)
-;; (driver-loop)
+;; 4.35
+
+(define (an-integer-between low high)
+  (define (loop n)
+    (require (not (= n high)))
+    (amb n (loop (+ n 1))))
+  (loop low))
