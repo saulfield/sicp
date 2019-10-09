@@ -457,6 +457,28 @@
       (display ";;; There is no current problem")
       (driver-loop))))
 
+(define (ambeval-repeat exp n)
+  (define count 0)
+  (define (loop try-again)
+    (if (> count 0)
+        (try-again)
+        (ambeval exp
+                 global-env
+                 (lambda (val next-alternative)
+                   (set! count (+ count 1))
+                   (user-print val)
+                   (newline)
+                   (if (< count n)
+                       (loop next-alternative)
+                       (newline)))
+                 (lambda ()
+                   (announce-output "No more values of")
+                   (user-print exp)))))
+  (loop (lambda ()
+          (newline)
+          (display "There is no current problem")
+          (newline))))
+
 (define definitions
   (list '(define (require p)
            (if (not p) (amb)))
@@ -486,7 +508,7 @@
         (load-definitions (cdr defs)))))
 
 (load-definitions definitions)
-(driver-loop)
+;; (driver-loop)
 
 ;; exercises
 
