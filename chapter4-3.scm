@@ -397,9 +397,16 @@
         (list 'cadr   cadr)
         (list 'caddr  caddr)
         (list 'null?  null?)
+        (list 'eq?    eq?)
         (list 'prime? prime?)
+        (list 'member member)
         (list 'not    not)
         (list 'printf printf)
+        (list 'abs    abs)
+        (list '>      >)
+        (list '<      <)
+        (list '<=     <=)
+        (list '>=     >=)
         (list '+      +)
         (list '-      -)
         (list '*      *)
@@ -517,7 +524,67 @@
                   (j (cadr  triple))
                   (k (caddr triple)))
               (require (= (+ (* i i) (* j j)) (* k k)))
-              (list i j k))))))
+              (list i j k))))
+        '(define (multiple-dwelling)
+          (let ((baker (amb 1 2 3 4 5))
+                (cooper (amb 1 2 3 4 5))
+                (fletcher (amb 1 2 3 4 5))
+                (miller (amb 1 2 3 4 5))
+                (smith (amb 1 2 3 4 5)))
+            (require (not (= baker 5)))
+            (require (not (= cooper 1)))
+            (require (not (= fletcher 5)))
+            (require (not (= fletcher 1)))
+            (require (> miller cooper))
+            (require (not (= (abs (- fletcher cooper)) 1)))
+            (require
+              (distinct? (list baker cooper fletcher 
+                              miller smith)))
+            (list (list 'baker baker)
+                  (list 'cooper cooper)
+                  (list 'fletcher fletcher)
+                  (list 'miller miller)
+                  (list 'smith smith))))
+        '(define (distinct? items)
+          (cond ((null? items) true)
+                ((null? (cdr items)) true)
+                ((member (car items) (cdr items)) false)
+                (else (distinct? (cdr items)))))
+        '(define (xor a b)
+          (not (eq? a b)))
+        '(define (liars-puzzle)
+          (let ((betty  (amb 1 2 3 4 5))
+                (ethel  (amb 1 2 3 4 5))
+                (joan   (amb 1 2 3 4 5))
+                (kitty  (amb 1 2 3 4 5))
+                (mary   (amb 1 2 3 4 5)))
+            (require (xor (= kitty 2) (= betty 3)))
+            (require (xor (= ethel 1) (= joan 2)))
+            (require (xor (= joan 3) (= ethel 5)))
+            (require (xor (= kitty 2) (= mary 4)))
+            (require (xor (= mary 4) (= betty 1)))
+            (require (distinct? (list betty ethel joan kitty mary)))
+            (list (list 'betty betty)
+                  (list 'ethel ethel)
+                  (list 'joan  joan)
+                  (list 'kitty kitty)
+                  (list 'mary  mary))))
+        '(define (yacht-puzzle)
+          (let ((gabrielle (amb 'downing 'hall))
+                (lorna (amb 'downing 'hall 'parker))
+                (rosalind (amb 'downing 'parker))
+                (melissa 'barnacle)
+                (maryann 'moore))
+            (require
+              (cond ((eq? gabrielle 'hall) (eq? rosalind 'parker))
+                    (else (eq? melissa 'parker))))
+            (require
+            (distinct? (list gabrielle lorna rosalind melissa maryann)))
+            (list (list 'gabrielle gabrielle)
+                  (list 'lorna lorna)
+                  (list 'rosalind rosalind)
+                  (list 'melissa melissa)
+                  (list 'maryann maryann))))))
 
 (define (load-definitions defs)
   (if (null? defs)
@@ -591,3 +658,125 @@
           (k (caddr triple)))
       (require (= (+ (* i i) (* j j)) (* k k)))
       (list i j k))))
+
+;; 4.38
+
+(define (distinct? items)
+  (cond ((null? items) true)
+        ((null? (cdr items)) true)
+        ((member (car items) (cdr items)) false)
+        (else (distinct? (cdr items)))))
+
+(define (multiple-dwelling)
+  (let ((baker    (amb 1 2 3 4 5))
+        (cooper   (amb 1 2 3 4 5))
+        (fletcher (amb 1 2 3 4 5))
+        (miller   (amb 1 2 3 4 5))
+        (smith    (amb 1 2 3 4 5)))
+    (require (not (= baker 5)))
+    (require (not (= cooper 1)))
+    (require (not (= fletcher 5)))
+    (require (not (= fletcher 1)))
+    (require (> miller cooper))
+    (require (not (= (abs (- smith fletcher)) 1)))
+    (require (not (= (abs (- fletcher cooper)) 1)))
+    (require
+     (distinct? (list baker cooper fletcher miller smith)))
+    (list (list 'baker    baker)
+          (list 'cooper   cooper)
+          (list 'fletcher fletcher)
+          (list 'miller   miller)
+          (list 'smith    smith))))
+
+;; there are now 5 solutions:
+
+;; ((baker 1) (cooper 2) (fletcher 4) (miller 3) (smith 5))
+;; ((baker 1) (cooper 2) (fletcher 4) (miller 5) (smith 3))
+;; ((baker 1) (cooper 4) (fletcher 2) (miller 5) (smith 3))
+;; ((baker 3) (cooper 2) (fletcher 4) (miller 5) (smith 1))
+;; ((baker 3) (cooper 4) (fletcher 2) (miller 5) (smith 1))
+
+;; 4.39
+
+;; The order affects the runtime, but not the results.
+;; Moving the distinct requirement to the end would improve
+;; performance since it is the most expensive constraint.
+
+;; 4.40
+
+(define (multiple-dwelling)
+  (let ((baker    (amb 1 2 3 4))
+        (cooper   (amb 2 3 4 5))
+        (fletcher (amb 2 3 4))
+        (miller   (amb 1 2 3 4 5))
+        (smith    (amb 1 2 3 4 5)))
+    (require (> miller cooper))
+    (require (not (= (abs (- smith fletcher)) 1)))
+    (require (not (= (abs (- fletcher cooper)) 1)))
+    (require
+     (distinct? (list baker cooper fletcher miller smith)))
+    (list (list 'baker    baker)
+          (list 'cooper   cooper)
+          (list 'fletcher fletcher)
+          (list 'miller   miller)
+          (list 'smith    smith))))
+
+;; (ambeval-repeat '(multiple-dwelling) 10)
+
+;; 4.42
+
+(define (xor a b)
+  (not (eq? a b)))
+
+(define (liars-puzzle)
+  (let ((betty  (amb 1 2 3 4 5))
+        (ethel  (amb 1 2 3 4 5))
+        (joan   (amb 1 2 3 4 5))
+        (kitty  (amb 1 2 3 4 5))
+        (mary   (amb 1 2 3 4 5)))
+    (require (xor (= kitty 2) (= betty 3)))
+    (require (xor (= ethel 1) (= joan 2)))
+    (require (xor (= joan 3) (= ethel 5)))
+    (require (xor (= kitty 2) (= mary 4)))
+    (require (xor (= mary 4) (= betty 1)))
+    (require (distinct? (list betty ethel joan kitty mary)))
+    (list (list 'betty betty)
+          (list 'ethel ethel)
+          (list 'joan  joan)
+          (list 'kitty kitty)
+          (list 'mary  mary))))
+
+;; (ambeval-repeat '(liars-puzzle) 10)
+
+;; 4.43
+
+;; barnacle -> gabrielle
+;; moore -> lorna
+;; hall -> rosalind
+;; downing -> melissa
+;; parker -> maryann
+
+(define (yacht-puzzle)
+  (let ((gabrielle (amb 'downing 'hall))
+        (lorna (amb 'downing 'hall 'parker))
+        (rosalind (amb 'downing 'parker))
+        (melissa 'barnacle)
+        (maryann 'moore))
+    (require
+      (cond ((eq? gabrielle 'hall) (eq? rosalind 'parker))
+            (else (eq? melissa 'parker))))
+    (require
+     (distinct? (list gabrielle lorna rosalind melissa maryann)))
+    (list (list 'gabrielle gabrielle)
+          (list 'lorna lorna)
+          (list 'rosalind rosalind)
+          (list 'melissa melissa)
+          (list 'maryann maryann))))
+
+;; (ambeval-repeat '(yacht-puzzle) 10)
+;; ((gabrielle hall)
+;; (lorna downing)
+;; (rosalind parker)
+;; (melissa barnacle)
+;; (maryann moore))
+
