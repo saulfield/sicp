@@ -391,17 +391,20 @@
           (else (loop (+ d 1))))))
 
 (define primitive-procedures
-  (list (list 'car   car)
-        (list 'cdr   cdr)
-        (list 'cons  cons)
-        (list 'null? null?)
+  (list (list 'car    car)
+        (list 'cdr    cdr)
+        (list 'cons   cons)
+        (list 'cadr   cadr)
+        (list 'caddr  caddr)
+        (list 'null?  null?)
         (list 'prime? prime?)
-        (list 'not   not)
-        (list '+     +)
-        (list '-     -)
-        (list '*     *)
-        (list '/     /)
-        (list '=     =)))
+        (list 'not    not)
+        (list 'printf printf)
+        (list '+      +)
+        (list '-      -)
+        (list '*      *)
+        (list '/      /)
+        (list '=      =)))
 
 (define (primitive-procedure-names)
   (map car primitive-procedures))
@@ -495,7 +498,26 @@
            (define (loop n)
              (require (not (= n high)))
              (amb n (loop (+ n 1))))
-           (loop low))))
+           (loop low))
+        '(define (an-integer-starting-from n)
+           (amb n (an-integer-starting-from (+ n 1))))
+        '(define (next triple)
+           (let ((a (car   triple))
+                 (b (cadr  triple))
+                 (c (caddr triple)))
+             (cond ((= a b c) (list 1 1 (+ c 1)))
+                   ((= a b)   (list 1 (+ b 1) c))
+                   (else      (list (+ a 1) b c)))))
+        '(define (a-triple-from triple)
+           (amb triple
+                (a-triple-from (next triple))))
+        '(define (pythagorean-triple)
+          (let ((triple (a-triple-from '(1 1 1))))
+            (let ((i (car   triple))
+                  (j (cadr  triple))
+                  (k (caddr triple)))
+              (require (= (+ (* i i) (* j j)) (* k k)))
+              (list i j k))))))
 
 (define (load-definitions defs)
   (if (null? defs)
@@ -521,3 +543,51 @@
     (require (not (= n high)))
     (amb n (loop (+ n 1))))
   (loop low))
+
+;; 4.36
+
+;; (ambeval-repeat
+;;   '(define (pythagorean-triple-from low)
+;;     (let ((i (an-integer-starting-from low)))
+;;       (let ((j (an-integer-starting-from low)))
+;;         (let ((k (an-integer-starting-from low)))
+;;           (printf "~a ~a ~a~n" i j k)
+;;           (require (= (+ (* i i) (* j j))
+;;                       (* k k)))
+;;           (list i j k)))))
+;;   1)
+
+;; (ambeval-repeat '(pythagorean-triple-from 1) 10)
+
+;; output:
+
+;; ...
+;; 1 1 19772
+;; 1 1 19773
+;; 1 1 19774
+;; 1 1 19775
+;; 1 1 19776
+;; 1 1 19777
+;; ...
+
+;; use depth first search instead
+
+(define (next triple)
+          (let ((a (car   triple))
+                (b (cadr  triple))
+                (c (caddr triple)))
+            (cond ((= a b c) (list 1 1 (+ c 1)))
+                  ((= a b)   (list 1 (+ b 1) c))
+                  (else      (list (+ a 1) b c)))))
+
+(define (a-triple-from triple)
+  (amb triple
+       (a-triple-from (next triple))))
+
+(define (pythagorean-triple)
+  (let ((triple (a-triple-from '(1 1 1))))
+    (let ((i (car   triple))
+          (j (cadr  triple))
+          (k (caddr triple)))
+      (require (= (+ (* i i) (* j j)) (* k k)))
+      (list i j k))))
