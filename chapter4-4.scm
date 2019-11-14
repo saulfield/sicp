@@ -341,35 +341,31 @@
 (define (extend-if-consistent var dat frame)
   (let ((binding (binding-in-frame var frame)))
     (if binding
-        (pattern-match 
-         (binding-value binding) dat frame)
+        (pattern-match (binding-value binding) dat frame)
         (extend var dat frame))))
 
 (define (pattern-match pat dat frame)
+  (printf "pattern-match:~n~a~n~a~n~a~n~n" pat dat frame)
   (cond ((eq? frame 'failed) 'failed)
         ((equal? pat dat) frame)
-        ((var? pat) 
-         (extend-if-consistent 
-          pat dat frame))
+        ((var? pat) (extend-if-consistent pat dat frame))
         ((and (pair? pat) (pair? dat))
-         (pattern-match 
+         (pattern-match
           (cdr pat) 
           (cdr dat)
           (pattern-match
            (car pat) (car dat) frame)))
         (else 'failed)))
 
-(define (check-an-assertion 
-         assertion query-pat query-frame)
+(define (check-an-assertion assertion query-pat query-frame)
   (let ((match-result
-         (pattern-match 
-          query-pat assertion query-frame)))
+        (pattern-match query-pat assertion query-frame)))
     (if (eq? match-result 'failed)
         the-empty-stream
         (singleton-stream match-result))))
 
 (define (find-assertions pattern frame)
-  (stream-flatmap 
+  (stream-flatmap
     (lambda (datum) 
       (check-an-assertion datum pattern frame))
     (fetch-assertions pattern frame)))
@@ -449,8 +445,7 @@
 (put 'lisp-value 'qeval lisp-value)
 (put 'always-true 'qeval always-true)
 
-(define (simple-query query-pattern 
-                      frame-stream)
+(define (simple-query query-pattern frame-stream)
   (stream-flatmap
    (lambda (frame)
      (stream-append-delayed
