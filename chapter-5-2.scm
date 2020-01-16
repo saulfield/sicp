@@ -160,8 +160,7 @@
 (define (assign-value-exp assign-instruction)
   (cddr assign-instruction))
 
-(define (make-assign 
-         inst machine labels operations pc)
+(define (make-assign inst machine labels operations pc)
   (let ((target 
          (get-register 
           machine 
@@ -214,14 +213,10 @@
 (define (make-label-entry label-name insts)
   (cons label-name insts))
 
-(define (make-instruction text)
-  (cons text '()))
+(define (make-instruction text) (cons text '()))
 (define (instruction-text inst) (car inst))
-(define (instruction-execution-proc inst)
-  (cdr inst))
-(define (set-instruction-execution-proc!
-         inst
-         proc)
+(define (instruction-execution-proc inst) (cdr inst))
+(define (set-instruction-execution-proc! inst proc)
   (set-cdr! inst proc))
 
 (define (extract-labels text)
@@ -236,8 +231,7 @@
                 (cons 
                  insts
                  (cons 
-                  (make-label-entry 
-                   next-inst insts) 
+                  (make-label-entry next-inst insts) 
                   labels))
                 (cons 
                  (cons 
@@ -275,16 +269,13 @@
 (define (get-register machine reg-name)
   ((machine 'get-register) reg-name))
 
-(define (start machine)
-  (machine 'start))
+(define (start machine) (machine 'start))
 
-(define (get-register-contents 
-         machine register-name)
+(define (get-register-contents machine register-name)
   (get-contents 
    (get-register machine register-name)))
 
-(define (set-register-contents! 
-         machine register-name value)
+(define (set-register-contents! machine register-name value)
   (set-contents! 
    (get-register machine register-name) 
    value)
@@ -328,36 +319,23 @@
                 (execute)))))
       (define (dispatch message)
         (cond ((eq? message 'start)
-               (set-contents! 
-                pc
-                the-instruction-sequence)
+               (set-contents! pc the-instruction-sequence)
                (execute))
-              ((eq? 
-                message 
-                'install-instruction-sequence)
+              ((eq? message 'install-instruction-sequence)
                (lambda (seq) 
-                 (set! 
-                  the-instruction-sequence 
-                  seq)))
-              ((eq? message 
-                    'allocate-register) 
-               allocate-register)
-              ((eq? message 'get-register) 
-               lookup-register)
-              ((eq? message 
-                    'install-operations)
+                 (set! the-instruction-sequence seq)))
+              ((eq? message 'install-operations)
                (lambda (ops) 
-                 (set! the-ops 
-                       (append the-ops ops))))
-              ((eq? message 'stack) stack)
-              ((eq? message 'operations) 
-               the-ops)
+                 (set! the-ops (append the-ops ops))))
+              ((eq? message 'allocate-register) allocate-register)
+              ((eq? message 'get-register)      lookup-register)
+              ((eq? message 'operations)        the-ops)
+              ((eq? message 'stack)             stack)
               (else (error "Unknown request: MACHINE" message))))
       dispatch)))
 
 (define (pop stack) (stack 'pop))
-(define (push stack value)
-  ((stack 'push) value))
+(define (push stack value) ((stack 'push) value))
 
 (define (make-stack)
   (let ((s '()))
@@ -375,17 +353,12 @@
     (define (dispatch message)
       (cond ((eq? message 'push) push)
             ((eq? message 'pop) (pop))
-            ((eq? message 'initialize) 
-             (initialize))
-            (else 
-             (error "Unknown request: STACK" message))))
+            ((eq? message 'initialize) (initialize))
+            (else (error "Unknown request: STACK" message))))
     dispatch))
 
-(define (get-contents register)
-  (register 'get))
-
-(define (set-contents! register value)
-  ((register 'set) value))
+(define (get-contents register) (register 'get))
+(define (set-contents! register value) ((register 'set) value))
 
 (define (make-register name)
   (let ((contents '*unassigned*))
@@ -394,8 +367,7 @@
             ((eq? message 'set)
              (lambda (value) 
                (set! contents value)))
-            (else
-             (error "Unknown request: REGISTER" message))))
+            (else (error "Unknown request: REGISTER" message))))
     dispatch))
 
 (define (make-machine register-names 
@@ -403,8 +375,7 @@
                       controller-text)
   (let ((machine (make-new-machine)))
     (for-each (lambda (register-name)
-                ((machine 'allocate-register) 
-                 register-name))
+                ((machine 'allocate-register) register-name))
               register-names)
     ((machine 'install-operations) ops)
     ((machine 'install-instruction-sequence)
@@ -429,6 +400,6 @@
 (set-register-contents! gcd-machine 'a 206)
 (set-register-contents! gcd-machine 'b 40)
 (start gcd-machine)
-(get-register-contents gcd-machine 'a)
+(define result (get-register-contents gcd-machine 'a))
 
-(printf "~a~n" (get-register-contents gcd-machine 'a))
+(printf "~a~n" result)
