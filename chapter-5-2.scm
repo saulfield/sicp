@@ -262,7 +262,7 @@
         (stack (make-stack))
         (the-instruction-sequence '()))
     (let ((the-ops
-           (list 
+           (list
             (list 'initialize-stack
                   (lambda () 
                     (stack 'initialize)))))
@@ -273,14 +273,13 @@
         (if (assoc name register-table)
             (error "Multiply defined register: " name)
             (set! register-table
-                  (cons 
-                   (list name 
+                  (cons
+                   (list name
                          (make-register name))
                    register-table)))
         'register-allocated)
       (define (lookup-register name)
-        (let ((val 
-               (assoc name register-table)))
+        (let ((val (assoc name register-table)))
           (if val
               (cadr val)
               (error "Unknown register:" name))))
@@ -370,11 +369,37 @@
        (goto (label test-b))
      gcd-done)))
 
+(define fact-machine
+  (make-machine
+    '(n val continue)
+    (list (list '* *) (list '- -) (list '= =))'(start
+        (assign continue (label fact-done))
+     fact-loop
+        (test (op =) (reg n) (const 1))
+        (branch (label base-case))
+        (save continue)
+        (save n)
+        (assign n (op -) (reg n) (const 1))
+        (assign continue (label after-fact))
+        (goto (label fact-loop))
+     after-fact
+        (restore n)
+        (restore continue)
+        (assign val (op *) (reg n) (reg val))
+        (goto (reg continue))
+     base-case
+        (assign val (const 1))
+        (goto (reg continue))
+     fact-done)))
+
+(set-register-contents! fact-machine 'n 5)
+(start fact-machine)
+(printf "~a~n" (get-register-contents fact-machine 'val))
+
 (set-register-contents! gcd-machine 'a 206)
 (set-register-contents! gcd-machine 'b 40)
 (start gcd-machine)
 (define result (get-register-contents gcd-machine 'a))
-
 (printf "~a~n" result)
 
 ;; exercises
