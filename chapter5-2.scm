@@ -9,52 +9,45 @@
         (cadr val)
         (error "Unknown operation: ASSEMBLE" symbol))))
 
-(define (make-operation-exp exp machine labels operations)
-  (let ((op (lookup-prim 
-             (operation-exp-op exp)
-             operations))
-        (aprocs
-         (map (lambda (e)
-                (make-primitive-exp e machine labels))
-              (operation-exp-operands exp))))
-    (lambda () (apply op (map (lambda (p) (p))
-                              aprocs)))))
-
 (define (operation-exp? exp)
   (and (pair? exp)
        (tagged-list? (car exp) 'op)))
+
 (define (operation-exp-op operation-exp)
   (cadr (car operation-exp)))
+
 (define (operation-exp-operands operation-exp)
   (cdr operation-exp))
+
+(define (make-operation-exp exp machine labels operations)
+  (let ((op (lookup-prim (operation-exp-op exp) operations))
+        (aprocs
+         (map (lambda (e)
+                (if (not (label-exp? e))
+                    (make-primitive-exp e machine labels)
+                    (error #f "Operands cannot be labels" e)))
+              (operation-exp-operands exp))))
+    (lambda () 
+      (apply op (map (lambda (p) (p)) aprocs)))))
 
 (define (register-exp? exp) (tagged-list? exp 'reg))
 (define (constant-exp? exp) (tagged-list? exp 'const))
 (define (label-exp? exp)    (tagged-list? exp 'label))
-(define (register-exp-reg exp)   (cadr exp))
-(define (constant-exp-value exp) (cadr exp))
-(define (label-exp-label exp)    (cadr exp))
 
 (define (make-primitive-exp exp machine labels)
   (cond ((constant-exp? exp)
-         (let ((c (constant-exp-value exp)))
+         (let ((c (cadr exp)))
            (lambda () c)))
         ((label-exp? exp)
-         (let ((insts
-                (lookup-label 
-                 labels
-                 (label-exp-label exp))))
+         (let ((insts (lookup-label labels (cadr exp))))
            (lambda () insts)))
         ((register-exp? exp)
-         (let ((r (get-register
-                   machine
-                   (register-exp-reg exp))))
+         (let ((r (get-register machine (cadr exp))))
            (lambda () (get-contents r))))
         (else (error "Unknown expression type: ASSEMBLE" exp))))
 
-(define (make-perform 
-         inst machine labels operations pc)
-  (let ((action (perform-action inst)))
+(define (make-perform inst machine labels operations pc)
+  (let ((action (cdr inst)))
     (if (operation-exp? action)
         (let ((action-proc
                (make-operation-exp
@@ -67,67 +60,45 @@
             (advance-pc pc)))
         (error "Bad PERFORM instruction: ASSEMBLE" inst))))
 
-(define (perform-action inst) (cdr inst))
-
 (define (make-save inst machine stack pc)
-  (let ((reg (get-register 
-              machine
-              (stack-inst-reg-name inst))))
+  (let ((reg (get-register machine (cadr inst))))
     (lambda ()
       (push stack (get-contents reg))
       (advance-pc pc))))
 
 (define (make-restore inst machine stack pc)
-  (let ((reg (get-register
-              machine
-              (stack-inst-reg-name inst))))
+  (let ((reg (get-register machine (cadr inst))))
     (lambda ()
       (set-contents! reg (pop stack))
       (advance-pc pc))))
 
-(define (stack-inst-reg-name 
-         stack-instruction)
-  (cadr stack-instruction))
-
 (define (make-goto inst machine labels pc)
-  (let ((dest (goto-dest inst)))
+  (let ((dest (cadr inst)))
     (cond ((label-exp? dest)
-           (let ((insts
-                  (lookup-label 
-                   labels
-                   (label-exp-label dest))))
-             (lambda () 
+           (let ((insts (lookup-label labels (cadr dest))))
+             (lambda ()
                (set-contents! pc insts))))
           ((register-exp? dest)
-           (let ((reg
-                  (get-register 
-                   machine
-                   (register-exp-reg dest))))
+           (let ((reg (get-register machine (cadr dest))))
              (lambda ()
                (set-contents! pc (get-contents reg)))))
           (else (error "Bad GOTO instruction: ASSEMBLE" inst)))))
 
-(define (goto-dest goto-instruction)
-  (cadr goto-instruction))
+(define (branch-dest branch-instruction)
+  (cadr branch-instruction))
 
 (define (make-branch inst machine labels flag pc)
   (let ((dest (branch-dest inst)))
     (if (label-exp? dest)
-        (let ((insts
-               (lookup-label 
-                labels 
-                (label-exp-label dest))))
+        (let ((insts (lookup-label labels (cadr dest))))
           (lambda ()
             (if (get-contents flag)
                 (set-contents! pc insts)
                 (advance-pc pc))))
         (error "Bad BRANCH instruction: ASSEMBLE" inst))))
 
-(define (branch-dest branch-instruction)
-  (cadr branch-instruction))
-
 (define (make-test inst machine labels operations flag pc)
-  (let ((condition (test-condition inst)))
+  (let ((condition (cdr inst)))
     (if (operation-exp? condition)
         (let ((condition-proc
                (make-operation-exp
@@ -136,13 +107,9 @@
                 labels
                 operations)))
           (lambda () 
-            (set-contents! 
-             flag (condition-proc))
+            (set-contents! flag (condition-proc))
             (advance-pc pc)))
         (error "Bad TEST instruction: ASSEMBLE" inst))))
-
-(define (test-condition test-instruction)
-  (cdr test-instruction))
 
 (define (advance-pc pc)
   (set-contents! pc (cdr (get-contents pc))))
@@ -170,8 +137,7 @@
         (set-contents! target (value-proc))
         (advance-pc pc)))))
 
-(define (make-execution-procedure 
-         inst labels machine pc flag stack ops)
+(define (make-execution-procedure inst labels machine pc flag stack ops)
   (cond ((eq? (car inst) 'assign)
          (make-assign inst machine labels ops pc))
         ((eq? (car inst) 'test)
@@ -211,10 +177,12 @@
               (labels (cdr result)))
           (let ((next-inst (car text)))
             (if (symbol? next-inst)
-                (cons insts
-                      (cons (make-label-entry next-inst insts) 
-                            labels))
-                (cons (cons (make-instruction next-inst) 
+                (if (assoc next-inst labels)
+                    (error 'extract "Label already used" next-inst)
+                    (cons insts
+                      (cons (make-label-entry next-inst insts)
+                            labels)))
+                (cons (cons (make-instruction next-inst)
                             insts)
                       labels)))))))
 
@@ -297,6 +265,7 @@
                (execute))
               ((eq? message 'install-instruction-sequence)
                (lambda (seq) 
+                  ; (display seq) (newline)
                  (set! the-instruction-sequence seq)))
               ((eq? message 'install-operations)
                (lambda (ops) 
@@ -356,45 +325,22 @@
 
 ;; run
 
+(define gcd-text
+        '(test-b
+            (test (op =) (reg b) (const 0))
+            (branch (label gcd-done))
+          ; test-b
+            (assign t (op rem) (reg a) (reg b))
+            (assign a (reg b))
+            (assign b (reg t))
+            (goto (label test-b))
+          gcd-done))
+
 (define gcd-machine
   (make-machine
    '(a b t)
    (list (list 'rem remainder) (list '= =))
-   '(test-b
-       (test (op =) (reg b) (const 0))
-       (branch (label gcd-done))
-       (assign t (op rem) (reg a) (reg b))
-       (assign a (reg b))
-       (assign b (reg t))
-       (goto (label test-b))
-     gcd-done)))
-
-(define fact-machine
-  (make-machine
-    '(n val continue)
-    (list (list '* *) (list '- -) (list '= =))'(start
-        (assign continue (label fact-done))
-     fact-loop
-        (test (op =) (reg n) (const 1))
-        (branch (label base-case))
-        (save continue)
-        (save n)
-        (assign n (op -) (reg n) (const 1))
-        (assign continue (label after-fact))
-        (goto (label fact-loop))
-     after-fact
-        (restore n)
-        (restore continue)
-        (assign val (op *) (reg n) (reg val))
-        (goto (reg continue))
-     base-case
-        (assign val (const 1))
-        (goto (reg continue))
-     fact-done)))
-
-(set-register-contents! fact-machine 'n 5)
-(start fact-machine)
-(printf "~a~n" (get-register-contents fact-machine 'val))
+   gcd-text))
 
 (set-register-contents! gcd-machine 'a 206)
 (set-register-contents! gcd-machine 'b 40)
@@ -405,6 +351,41 @@
 ;; exercises
 
 ;; 5.8
+
+; register a will be 3
+
+; (define (extract-labels text)
+;   (if (null? text)
+;       (cons '() '())
+;       (let ((result (extract-labels (cdr text))))
+;         (let ((insts (car result))
+;               (labels (cdr result)))
+;           (let ((next-inst (car text)))
+;             (if (symbol? next-inst)
+;                 (if (assoc next-inst labels)
+;                     (error 'extract "Label already used" next-inst)
+;                     (cons insts
+;                       (cons (make-label-entry next-inst insts)
+;                             labels)))
+;                 (cons (cons (make-instruction next-inst)
+;                             insts)
+;                       labels)))))))
+
 ;; 5.9
+
+; (define (make-operation-exp exp machine labels operations)
+;   (let ((op (lookup-prim (operation-exp-op exp) operations))
+;         (aprocs
+;          (map (lambda (e)
+;                 (if (not (label-exp? e))
+;                     (make-primitive-exp e machine labels)
+;                     (error "Operands cannot be labels" e)))
+;               (operation-exp-operands exp))))
+;     (lambda () 
+;       (apply op (map (lambda (p) (p)) aprocs)))))
+
 ;; 5.11 (1)
+
+
+
 ;; 5.13
