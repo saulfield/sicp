@@ -429,3 +429,28 @@
 (set-register-contents! vector-machine 'b 2)
 (start vector-machine)
 (printf "~a~n" (get-register-contents vector-machine 'val))
+
+; Exercises
+
+; 5.20
+
+; +---+---+   +---+---+
+; | * | * |-->| * |NIL|
+; +---+---+   +---+---+
+;   |           |
+;   +-----------+
+;   |
+;   v
+; +---+---+
+; | * | * |
+; +---+---+
+;   |   |
+;   v   v
+;   1   2
+
+; index      0  1  2  3  4
+;          +--+--+--+--+--+
+; the-cars |  |n1|p1|p1|  |
+;          +--+--+--+--+--+
+; the-cdrs |  |n2|p3|e0|  |
+;          +--+--+--+--+--+
