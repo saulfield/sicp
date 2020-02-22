@@ -387,16 +387,16 @@
    (goto (reg continue))
  fib-done))
 
-(define fib-machine
-  (make-machine
-   '(n val continue)
-   (list (list '< <) (list '- -) (list '+ +))
-   fib-text))
+; (define fib-machine
+;   (make-machine
+;    '(n val continue)
+;    (list (list '< <) (list '- -) (list '+ +))
+;    fib-text))
 
-(set-register-contents! fib-machine 'n 6)
-(start fib-machine)
-(define result (get-register-contents fib-machine 'val))
-(printf "~a~n" result)
+; (set-register-contents! fib-machine 'n 6)
+; (start fib-machine)
+; (define result (get-register-contents fib-machine 'val))
+; (printf "~a~n" result)
 
 ;; exercises
 

@@ -347,8 +347,8 @@
      (assign free (op +) (reg free) (const 1))
 
      ; get car and cdr of the cons pair and add them together
-     (assign x (op vector-ref) (reg the-cars) (reg c))
-     (assign y (op vector-ref) (reg the-cdrs) (reg c))
+     (assign x (op vector-ref) (reg the-cars) (reg c))  ; car
+     (assign y (op vector-ref) (reg the-cdrs) (reg c))  ; cdr
      (assign val (op +) (reg x) (reg y))
     )))
 
