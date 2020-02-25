@@ -1,105 +1,29 @@
+(load "chapter4-1.scm")
+(load "chapter5-2.scm")
+
 (define (compile exp target linkage)
   (cond ((self-evaluating? exp)
-         (compile-self-evaluating 
-          exp target linkage))
+         (compile-self-evaluating exp target linkage))
         ((quoted? exp) 
          (compile-quoted exp target linkage))
         ((variable? exp)
-         (compile-variable 
-          exp target linkage))
+         (compile-variable exp target linkage))
         ((assignment? exp)
-         (compile-assignment
-          exp target linkage))
+         (compile-assignment exp target linkage))
         ((definition? exp)
-         (compile-definition
-          exp target linkage))
+         (compile-definition exp target linkage))
         ((if? exp)
          (compile-if exp target linkage))
         ((lambda? exp)
          (compile-lambda exp target linkage))
         ((begin? exp)
-         (compile-sequence 
-          (begin-actions exp) target linkage))
+         (compile-sequence (begin-actions exp) target linkage))
         ((cond? exp) 
-         (compile 
-          (cond->if exp) target linkage))
+         (compile (cond->if exp) target linkage))
         ((application? exp)
-         (compile-application 
-          exp target linkage))
+         (compile-application exp target linkage))
         (else
-         (error "Unknown expression type: 
-                 COMPILE" 
-                exp))))
-
-(define (tagged-list? exp tag)
-  (if (pair? exp)
-      (eq? (car exp) tag)
-      #f))
-
-(define (self-evaluating? expr)
-  (cond ((number? expr) #t)
-        ((string? expr) #t)
-        ((eq? expr #t)  #t)
-        ((eq? expr #f)  #t)
-        (else #f)))
-
-(define (quoted? exp) (tagged-list? exp 'quote))
-(define (text-of-quotation exp) (cadr exp))
-
-(define (variable? exp) (symbol? exp))
-
-(define (assignment? exp) (tagged-list? exp 'set!))
-(define (assignment-variable exp) (cadr exp))
-(define (assignment-value exp) (caddr exp))
-(define (eval-assignment exp env)
-  (set-variable-value! 
-   (assignment-variable exp)
-   (eval-expr (assignment-value exp) env)
-   env)
-  'ok)
-
-(define (lambda? exp) (tagged-list? exp 'lambda))
-(define (lambda-parameters exp) (cadr exp))
-(define (lambda-body exp) (cddr exp))
-(define (make-lambda parameters body)
-  (cons 'lambda (cons parameters body)))
-
-(define (definition? exp) (tagged-list? exp 'define))
-(define (definition-variable exp)
-  (if (symbol? (cadr exp))
-      (cadr exp)
-      (caadr exp)))
-(define (definition-value exp)
-  (if (symbol? (cadr exp))
-      (caddr exp)
-      (make-lambda
-       (cdadr exp)   ; formal parameters
-       (cddr exp)))) ; body
-
-(define (if? exp) (tagged-list? exp 'if))
-(define (if-predicate   exp) (cadr  exp))
-(define (if-consequent  exp) (caddr exp))
-(define (if-alternative exp)
-  (if (not (null? (cdddr exp)))
-      (cadddr exp)
-      'false))
-
-(define (begin? exp) (tagged-list? exp 'begin))
-(define (begin-actions exp) (cdr exp))
-(define (last-exp? seq) (null? (cdr seq)))
-(define (first-exp seq) (car seq))
-(define (rest-exps seq) (cdr seq))
-
-(define (application? exp) (pair? exp))
-(define (operator exp) (car exp))
-(define (operands exp) (cdr exp))
-(define (list-of-values exps env)
-  (if (null? exps)
-      '()
-      (cons (eval-expr (car exps) env)
-            (list-of-values (cdr exps) env))))
-
-(define (cond? exp) (tagged-list? exp 'cond))
+         (error "Unknown expression type: COMPILE" exp))))
 
 ; Compiler utility functions
 
@@ -116,6 +40,15 @@
    (string-append 
     (symbol->string name)
     (number->string (new-label-number)))))
+
+(define (make-compiled-procedure entry env)
+  (list 'compiled-procedure entry env))
+(define (compiled-procedure? proc)
+  (tagged-list? proc 'compiled-procedure))
+(define (compiled-procedure-entry c-proc) 
+  (cadr c-proc))
+(define (compiled-procedure-env c-proc)
+  (caddr c-proc))
 
 (define (make-instruction-sequence 
          needs modifies statements)
@@ -547,38 +480,41 @@
 
 ; run
 
-(load "chapter5-2.scm")
+(define default-ops
+  (list (list 'make-compiled-procedure make-compiled-procedure)
+         (list 'lookup-variable-value lookup-variable-value)
+         (list 'set-variable-value! set-variable-value!)
+         (list 'define-variable! define-variable!)
+         (list 'false? false?)
+         (list 'compiled-procedure-env compiled-procedure-env)
+         (list 'extend-environment extend-environment)
+         (list 'list list)
+         (list 'cons cons)
+         (list 'primitive-procedure? primitive-procedure?)
+         (list 'apply-primitive-procedure apply-primitive-procedure)
+         (list 'compiled-procedure-entry compiled-procedure-entry)
+         (list 'get-global-env get-global-env)))
 
-(define code '5)
-(define asm (caddr (compile code 'val 'next)))
-(display asm) (newline)
+(define (compile-to-machine code)
+  (let ((compiled-seq (compile code 'val 'next)))
+    (define new-seq
+      (append-instruction-sequences
+        (make-instruction-sequence
+          '()
+          '()
+          '((assign env (op get-global-env))))
+        compiled-seq))
+    (pretty-print new-seq)
+    (make-machine all-regs default-ops (caddr new-seq))))
 
-(define machine
-  (make-machine
-   all-regs
-   '()
-   asm))
+(define code
+  '(begin 
+    (define (factorial n)
+      (if (= n 1)
+          1
+          (* (factorial (- n 1)) n)))
+    (factorial 5)))
 
+(define machine (compile-to-machine code))
 (start machine)
-(display (get-register-contents machine 'val))
-(newline)
-
-; (define code
-;   '(define (factorial n)
-;     (if (= n 1)
-;         1
-;         (* (factorial (- n 1)) n))))
-
-; (define asm (caddr (compile code 'val 'next)))
-; asm
-; (display asm) (newline)
-
-; (define machine
-;   (make-machine
-;    all-regs
-;    '()
-;    asm))
-
-; (start machine)
-; (display (get-register-contents machine 'val))
-; (newline)
+(pretty-print (get-register-contents machine 'val))

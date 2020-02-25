@@ -125,6 +125,9 @@
 (define the-global-environment (setup-environment))
 (define global-env the-global-environment)
 
+(define (get-global-env)
+  global-env)
+
 (define (list-of-arg-values exps env)
   (if (null? exps)
       '()
@@ -466,4 +469,4 @@
   (test-eval-env test-env 'y 2)
   (test-eval-env test-env 'z (cons 1 2)))
 
-(run-tests)
+; (run-tests)
