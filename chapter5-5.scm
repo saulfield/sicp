@@ -437,6 +437,10 @@
   (if (null? regs)
       (append-instruction-sequences seq1 seq2)
       (let ((first-reg (car regs)))
+        (if (and 
+             (needs-register? seq2 first-reg)
+             (modifies-register? seq1 
+                                 first-reg))
             (preserving 
              (cdr regs)
              (make-instruction-sequence
@@ -449,7 +453,11 @@
               (append `((save ,first-reg))
                       (statements seq1)
                       `((restore ,first-reg))))
-             seq2))))
+             seq2)
+            (preserving 
+             (cdr regs)
+             seq1
+             seq2)))))
 
 (define (tack-on-instruction-sequence 
          seq body-seq)
@@ -507,15 +515,51 @@
 ;           (* (factorial (- n 1)) n)))
 ;     (factorial 5)))
 
+; (define code
+;   '(define (factorial n)
+;     (if (= n 1)
+;         1
+;         (* (factorial (- n 1)) n))))
+
 (define code
-  '(define (factorial n)
-      (if (= n 1)
-          1
-          (* (factorial (- n 1)) n))))
+  '(define (factorial-alt n)
+    (if (= n 1)
+        1
+        (* n (factorial-alt (- n 1))))))
 
 (define machine (compile-to-machine code))
 (start machine)
 (pretty-print (get-register-contents machine 'val))
+
+
+; 5.33
+
+; $ diff fact1 fact2
+; 33,35c33
+; <    (save continue) (save proc)
+; <    (assign val (op lookup-variable-value) (const n) (reg env))
+; <    (assign argl (op list) (reg val)) (save argl)
+; ---
+; >    (save continue) (save proc) (save env)
+; 39c37
+; <      (const factorial)
+; ---
+; >      (const factorial-alt)
+; 67c65,66
+; <    after-call9 (restore argl)
+; ---
+; >    after-call9 (assign argl (op list) (reg val)) (restore env)
+; >    (assign val (op lookup-variable-value) (const n) (reg env))
+; 82c81
+; <      (const factorial)
+; ---
+; >      (const factorial-alt)
+
+; first version: one extra set of save/restore because we need to save the argument list before evaluating the recursive call
+
+; 5.34
+
+; 5.35
 
 ; (define (f x)
 ;   (+ x (g (+ x 2))))
@@ -595,3 +639,5 @@
 ; (assign val (op lookup-variable-value) (const n) (reg env))
 ; (restore continue) 
 ; (restore argl)
+
+; 5.38
