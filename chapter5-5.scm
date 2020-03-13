@@ -234,7 +234,6 @@
      (compile-sequence (lambda-body exp)
                        'val
                        'return))))
-
 (define (compile-application 
          exp target linkage)
   (let ((proc-code 
@@ -254,7 +253,7 @@
        linkage)))))
 
 (define (construct-arglist operand-codes)
-  (let ((operand-codes 
+    (let ((operand-codes 
          (reverse operand-codes)))
     (if (null? operand-codes)
         (make-instruction-sequence 
@@ -493,7 +492,8 @@
          (list 'primitive-procedure? primitive-procedure?)
          (list 'apply-primitive-procedure apply-primitive-procedure)
          (list 'compiled-procedure-entry compiled-procedure-entry)
-         (list 'get-global-env get-global-env)))
+         (list 'get-global-env get-global-env)
+         (list 'append append)))
 
 (define (compile-to-machine code)
   (let ((compiled-seq (compile code 'val 'next)))
@@ -518,3 +518,55 @@
 (define machine (compile-to-machine code))
 (start machine)
 (pretty-print (get-register-contents machine 'val))
+
+; (define (f x)
+;   (+ x (g (+ x 2))))
+
+; 5.36
+
+; (define (construct-arglist operand-codes)
+;   (let ((operand-codes operand-codes))
+;     (if (null? operand-codes)
+;         (make-instruction-sequence 
+;          '() 
+;          '(argl)
+;          '((assign argl (const ()))))
+;         (let ((code-to-get-last-arg
+;                (append-instruction-sequences
+;                 (car operand-codes)
+;                 (make-instruction-sequence 
+;                  '(val)
+;                  '(argl)
+;                  '((assign argl
+;                            (op list)
+;                            (reg val)))))))
+;           (if (null? (cdr operand-codes))
+;               code-to-get-last-arg
+;               (preserving 
+;                '(env)
+;                code-to-get-last-arg
+;                (code-to-get-rest-args
+;                 (cdr operand-codes))))))))
+
+; (define (code-to-get-rest-args operand-codes)
+;   (let ((code-for-next-arg
+;          (preserving 
+;           '(argl)
+;           (car operand-codes)
+;           (make-instruction-sequence 
+;            '(val argl)
+;            '(argl)
+;            '((assign val (op list) (reg val))
+;              (assign argl
+;                      (op append)
+;                      (reg argl)
+;                      (reg val)))))))
+;     (if (null? (cdr operand-codes))
+;         code-for-next-arg
+;         (preserving 
+;          '(env)
+;          code-for-next-arg
+;          (code-to-get-rest-args 
+;           (cdr operand-codes))))))
+
+; 5.37
