@@ -20,6 +20,8 @@
          (compile-sequence (begin-actions exp) target linkage))
         ((cond? exp) 
          (compile (cond->if exp) target linkage))
+        ((primitive? (car exp))
+         (compile-primitive exp target linkage))
         ((application? exp)
          (compile-application exp target linkage))
         (else
@@ -27,7 +29,33 @@
 
 ; Compiler utility functions
 
-(define all-regs '(env proc val argl continue))
+(define (primitive? op)
+  (memq op '(= * - +)))
+
+(define (spread-arguments args)
+  (let ((arg1 (compile (car  args) 'arg1 'next))
+        (arg2 (compile (cadr args) 'arg2 'next)))
+    (list arg1 arg2)))
+
+; (+ 1 2)
+
+; (assign arg1 (const 1))
+; (assign arg2 (const 2))
+; (assign target (op +) (reg arg1) (reg arg2))
+
+(define (compile-primitive exp target linkage)
+  (define op (car exp))
+  (define args (spread-arguments (cdr exp)))
+  (define instructions 
+          (append-instruction-sequences 
+            (car args)
+            (preserving '(arg1)
+              (cadr args)
+              (make-instruction-sequence '(arg1 arg2) (list target)
+                `((assign ,target (op ,op) (reg arg1) (reg arg2)))))))
+  (end-with-linkage linkage instructions))
+
+(define all-regs '(env proc val argl continue arg1 arg2))
 
 (define label-counter 0)
 
@@ -493,7 +521,11 @@
          (list 'apply-primitive-procedure apply-primitive-procedure)
          (list 'compiled-procedure-entry compiled-procedure-entry)
          (list 'get-global-env get-global-env)
-         (list 'append append)))
+         (list 'append append)
+         (list '= =)
+         (list '* *)
+         (list '- -)
+         (list '+ +)))
 
 (define (compile-to-machine code)
   (let ((compiled-seq (compile code 'val 'next)))
@@ -507,6 +539,12 @@
     (pretty-print new-seq)
     (make-machine all-regs default-ops (caddr new-seq))))
 
+(define code
+  '(define (factorial n)
+    (if (= n 1)
+        1
+        (* (factorial (- n 1)) n))))
+
 ; (define code
 ;   '(begin 
 ;     (define (factorial n)
@@ -516,21 +554,14 @@
 ;     (factorial 5)))
 
 ; (define code
-;   '(define (factorial n)
+;   '(define (factorial-alt n)
 ;     (if (= n 1)
 ;         1
-;         (* (factorial (- n 1)) n))))
-
-(define code
-  '(define (factorial-alt n)
-    (if (= n 1)
-        1
-        (* n (factorial-alt (- n 1))))))
+;         (* n (factorial-alt (- n 1))))))
 
 (define machine (compile-to-machine code))
 (start machine)
 (pretty-print (get-register-contents machine 'val))
-
 
 ; 5.33
 
